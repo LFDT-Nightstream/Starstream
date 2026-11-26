@@ -7,7 +7,9 @@ use crate::ccs::layout::*;
 #[repr(u8)]
 pub(crate) enum Opcode {
     NewUtxo = 0,
-    ReceiveNewUtxoHandle,
+    Mint,
+    EnterMint,
+    ReceiveNewResourceHandle,
     EnterConstructor,
     YieldBegin,
     RegisterMethod,
@@ -23,6 +25,7 @@ pub(crate) enum Opcode {
     SetStorage,
     PreloadMethod,
     GetStorage,
+    GetTokenStorage,
     SkipConsumed,
     FinishTransaction,
     ReadAbi,
@@ -33,6 +36,10 @@ pub(crate) enum Opcode {
     SkipEffectHandler,
     BeginExecution,
     CallCoordinator,
+    AssertSignedBy,
+    Upcast,
+    Attach,
+    EnterAttach,
 }
 
 /// Linear terms for the sum of the supplied opcode selectors.
@@ -47,6 +54,10 @@ pub(crate) fn selector_sum(opcodes: impl IntoIterator<Item = Opcode>) -> Vec<(us
 impl From<&starstream_interleaving_spec::Step> for Opcode {
     fn from(value: &starstream_interleaving_spec::Step) -> Self {
         match value {
+            starstream_interleaving_spec::Step::Upcast { .. } => Self::Upcast,
+            starstream_interleaving_spec::Step::Attach { .. } => Self::Attach,
+            starstream_interleaving_spec::Step::EnterAttach { .. } => Self::EnterAttach,
+            starstream_interleaving_spec::Step::AssertSignedBy { .. } => Self::AssertSignedBy,
             starstream_interleaving_spec::Step::CallCoordinator { .. } => Self::CallCoordinator,
             starstream_interleaving_spec::Step::BeginExecution { .. } => Self::BeginExecution,
             starstream_interleaving_spec::Step::PushEffectHandlerFrame { .. } => {
@@ -61,12 +72,15 @@ impl From<&starstream_interleaving_spec::Step> for Opcode {
             starstream_interleaving_spec::Step::ReadAbi { .. } => Self::ReadAbi,
             starstream_interleaving_spec::Step::SetStorage { .. } => Self::SetStorage,
             starstream_interleaving_spec::Step::PreloadMethod { .. } => Self::PreloadMethod,
+            starstream_interleaving_spec::Step::GetTokenStorage { .. } => Self::GetTokenStorage,
             starstream_interleaving_spec::Step::GetStorage { .. } => Self::GetStorage,
             starstream_interleaving_spec::Step::SkipConsumed => Self::SkipConsumed,
             starstream_interleaving_spec::Step::FinishTransaction => Self::FinishTransaction,
+            starstream_interleaving_spec::Step::Mint { .. } => Self::Mint,
+            starstream_interleaving_spec::Step::EnterMint { .. } => Self::EnterMint,
             starstream_interleaving_spec::Step::NewUtxo { .. } => Opcode::NewUtxo,
-            starstream_interleaving_spec::Step::ReceiveNewUtxoHandle { .. } => {
-                Opcode::ReceiveNewUtxoHandle
+            starstream_interleaving_spec::Step::ReceiveNewResourceHandle { .. } => {
+                Opcode::ReceiveNewResourceHandle
             }
             starstream_interleaving_spec::Step::EnterConstructor { .. } => Opcode::EnterConstructor,
             starstream_interleaving_spec::Step::YieldBegin => Opcode::YieldBegin,
@@ -102,9 +116,15 @@ impl Opcode {
     pub fn is_execution(&self) -> bool {
         matches!(
             self,
-            Self::NewUtxo
-                | Self::ReceiveNewUtxoHandle
+            Self::Upcast
+                | Self::Attach
+                | Self::EnterAttach
+                | Self::AssertSignedBy
+                | Self::NewUtxo
+                | Self::Mint
+                | Self::ReceiveNewResourceHandle
                 | Self::EnterConstructor
+                | Self::EnterMint
                 | Self::YieldBegin
                 | Self::RegisterMethod
                 | Self::Return
@@ -131,10 +151,13 @@ impl Opcode {
     /// neither the raiser nor the skipped scope's owner observes it.
     pub fn has_event(&self) -> bool {
         (self.is_execution() && *self != Self::SkipEffectHandler)
-            || matches!(self, Self::SetStorage | Self::GetStorage)
+            || matches!(
+                self,
+                Self::SetStorage | Self::GetStorage | Self::GetTokenStorage
+            )
     }
 
-    pub fn scans_output(&self) -> bool {
+    pub fn scans_utxo_output(&self) -> bool {
         matches!(self, Self::GetStorage | Self::SkipConsumed)
     }
 
@@ -152,21 +175,23 @@ impl Opcode {
     ) -> Option<crate::ivc_state::CurrPhase> {
         use crate::ivc_state::CurrPhase;
         Some(match self {
-            Self::NewUtxo => CurrPhase::CtorEnterPending,
-            Self::CallMethod | Self::CallCoordinator | Self::BeginExecution => {
+            Self::NewUtxo | Self::Mint => CurrPhase::CtorEnterPending,
+            Self::Attach | Self::CallMethod | Self::CallCoordinator | Self::BeginExecution => {
                 CurrPhase::CallEnterPending
             }
-            Self::EnterConstructor => CurrPhase::ConstructorExecuting,
+            Self::EnterConstructor | Self::EnterMint => CurrPhase::ConstructorExecuting,
             Self::YieldBegin => CurrPhase::Registering,
-            Self::EnterCall => CurrPhase::Executing,
+            Self::EnterAttach | Self::EnterCall => CurrPhase::Executing,
             Self::RegisterMethod => CurrPhase::Registering,
             Self::RaiseEffect => CurrPhase::EffectHandlerPending,
             Self::EnterEffectHandler => CurrPhase::EffectHandlerExecuting,
             Self::SkipEffectHandler => CurrPhase::EffectHandlerPending,
-            Self::PushEffectHandlerFrame | Self::AddEffectHandler | Self::PopEffectHandlerFrame => {
-                before
-            }
-            Self::ReceiveNewUtxoHandle
+            Self::Upcast
+            | Self::AssertSignedBy
+            | Self::PushEffectHandlerFrame
+            | Self::AddEffectHandler
+            | Self::PopEffectHandlerFrame => before,
+            Self::ReceiveNewResourceHandle
             | Self::ReceiveCallResult
             | Self::Return
             | Self::ExitEffectHandler
@@ -174,6 +199,7 @@ impl Opcode {
             Self::Padding
             | Self::SetStorage
             | Self::PreloadMethod
+            | Self::GetTokenStorage
             | Self::GetStorage
             | Self::SkipConsumed
             | Self::FinishTransaction => before,
@@ -184,7 +210,9 @@ impl Opcode {
     pub fn all() -> Vec<Self> {
         vec![
             Opcode::NewUtxo,
-            Opcode::ReceiveNewUtxoHandle,
+            Self::Mint,
+            Self::EnterMint,
+            Opcode::ReceiveNewResourceHandle,
             Opcode::EnterConstructor,
             Opcode::YieldBegin,
             Opcode::RegisterMethod,
@@ -200,6 +228,7 @@ impl Opcode {
             Self::SetStorage,
             Self::PreloadMethod,
             Self::GetStorage,
+            Self::GetTokenStorage,
             Self::SkipConsumed,
             Self::FinishTransaction,
             Self::ReadAbi,
@@ -210,6 +239,10 @@ impl Opcode {
             Self::SkipEffectHandler,
             Self::BeginExecution,
             Self::CallCoordinator,
+            Self::AssertSignedBy,
+            Self::Upcast,
+            Self::Attach,
+            Self::EnterAttach,
         ]
     }
 
@@ -225,7 +258,11 @@ impl Opcode {
             | Self::ExitEffectHandler
             | Self::ResumeEffect => Some(true),
             Self::NewUtxo
+            | Self::Mint
             | Self::EnterConstructor
+            | Self::EnterMint
+            | Self::Attach
+            | Self::EnterAttach
             | Self::CallMethod
             | Self::CallCoordinator
             | Self::BeginExecution
@@ -240,10 +277,13 @@ impl Opcode {
     /// no read: Return reads this flag to determine its result and phase constraints.
     pub fn required_constructor_frame(&self) -> Option<bool> {
         match self {
-            Self::NewUtxo | Self::EnterConstructor => Some(true),
-            Self::CallMethod | Self::CallCoordinator | Self::BeginExecution | Self::EnterCall => {
-                Some(false)
-            }
+            Self::Mint | Self::EnterMint | Self::NewUtxo | Self::EnterConstructor => Some(true),
+            Self::Attach
+            | Self::EnterAttach
+            | Self::CallMethod
+            | Self::CallCoordinator
+            | Self::BeginExecution
+            | Self::EnterCall => Some(false),
             _ => None,
         }
     }
@@ -252,6 +292,8 @@ impl Opcode {
         matches!(
             self,
             Self::NewUtxo
+                | Self::Mint
+                | Self::Attach
                 | Self::CallMethod
                 | Self::CallCoordinator
                 | Self::RaiseEffect
@@ -268,14 +310,14 @@ impl Opcode {
     pub fn pushes_instance(&self) -> bool {
         matches!(
             self,
-            Self::NewUtxo | Self::CallMethod | Self::CallCoordinator
+            Self::Mint | Self::NewUtxo | Self::Attach | Self::CallMethod | Self::CallCoordinator
         )
     }
 
     pub fn pops_from_call_stack_unconditionally(&self) -> bool {
         matches!(
             self,
-            Self::ReceiveNewUtxoHandle | Self::ReceiveCallResult | Self::ResumeEffect
+            Self::ReceiveNewResourceHandle | Self::ReceiveCallResult | Self::ResumeEffect
         )
     }
 
@@ -283,6 +325,8 @@ impl Opcode {
         matches!(
             self,
             Self::EnterConstructor
+                | Self::EnterMint
+                | Self::EnterAttach
                 | Self::EnterCall
                 | Self::SkipEffectHandler
                 | Self::EnterEffectHandler
@@ -301,6 +345,10 @@ impl Opcode {
 
     pub fn selector(&self) -> usize {
         match self {
+            Self::Upcast => COL_SEL_UPCAST,
+            Self::Attach => COL_SEL_ATTACH,
+            Self::EnterAttach => COL_SEL_ENTER_ATTACH,
+            Self::AssertSignedBy => COL_SEL_ASSERT_SIGNED_BY,
             Self::PushEffectHandlerFrame => COL_SEL_PUSH_EFFECT_HANDLER_FRAME,
             Self::AddEffectHandler => COL_SEL_ADD_EFFECT_HANDLER,
             Self::PopEffectHandlerFrame => COL_SEL_POP_EFFECT_HANDLER_FRAME,
@@ -312,11 +360,14 @@ impl Opcode {
             Self::SetStorage => COL_SEL_SET_STORAGE,
             Self::PreloadMethod => COL_SEL_PRELOAD_METHOD,
             Self::GetStorage => COL_SEL_GET_STORAGE,
+            Self::GetTokenStorage => COL_SEL_GET_TOKEN_STORAGE,
             Self::SkipConsumed => COL_SEL_SKIP_CONSUMED,
             Self::FinishTransaction => COL_SEL_FINISH_TRANSACTION,
             Opcode::Padding => COL_SEL_PADDING,
+            Self::Mint => COL_SEL_MINT,
+            Self::EnterMint => COL_SEL_ENTER_MINT,
             Opcode::NewUtxo => COL_SEL_NEW_UTXO,
-            Opcode::ReceiveNewUtxoHandle => COL_SEL_RECEIVE_NEW_UTXO_HANDLE,
+            Opcode::ReceiveNewResourceHandle => COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE,
             Opcode::EnterConstructor => COL_SEL_ENTER_CONSTRUCTOR,
             Opcode::YieldBegin => COL_SEL_YIELD_BEGIN,
             Opcode::RegisterMethod => COL_SEL_REGISTER_METHOD,

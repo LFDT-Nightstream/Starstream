@@ -17,11 +17,12 @@ use crate::{
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
             COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8, COL_METHOD_INDEX,
-            COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
-            COL_NEXT_UTXO_ID_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_READ,
-            COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_RESULT_ROOT,
-            COL_RETURN_REQUIRES_UNIT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO,
-            COL_SEL_RECEIVE_NEW_UTXO_HANDLE, SELECTORS, range_check_layout,
+            COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_TOKEN_ID_BEFORE,
+            COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID,
+            COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
+            COL_RESULT_ROOT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO,
+            COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, COL_UNIT_RETURN_WEIGHT, SELECTORS,
+            range_check_layout,
         },
         tags::{ConstraintScope, always, opcode_tag, opcode_tags},
     },
@@ -47,11 +48,8 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     let mut builder = R1csBuilder::new(PUBLIC_INPUTS, COL_ONE)?;
     let mut b = builder.tagged(always("unlabeled"));
 
-    b.with_tag(always("resource bindings are fresh"), |b| {
-        b.push_gated_linear_zero(
-            COL_RESOURCE_RESOLVER_WRITE,
-            [(layout::COL_RESOURCE_RESOLVER_BEFORE, F::ONE)],
-        );
+    b.with_tag(always("unbound memory value is zero"), |b| {
+        b.push_linear_zero([(layout::COL_UNBOUND_VALUE, F::ONE)]);
     });
 
     b.with_tag(always("opcode selectors are one-hot"), |b| {
@@ -176,12 +174,30 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         },
     );
 
+    b.with_tag(always("storage load kind and next token index"), |b| {
+        b.push_linear_zero([
+            (layout::COL_SEL_SET_STORAGE, F::ONE),
+            (layout::COL_TOKEN_LOAD, -F::ONE),
+            (layout::COL_UTXO_LOAD, -F::ONE),
+        ]);
+        b.push_linear_zero([
+            (layout::COL_TOKEN_INTERFACE_WRITE, F::ONE),
+            (layout::COL_TOKEN_LOAD, -F::ONE),
+            (layout::COL_SEL_ENTER_MINT, -F::ONE),
+        ]);
+        b.push_linear_zero([
+            (layout::COL_NEXT_TOKEN_ID_AFTER, F::ONE),
+            (COL_NEXT_TOKEN_ID_BEFORE, -F::ONE),
+            (layout::COL_SEL_MINT, -F::ONE),
+            (layout::COL_TOKEN_LOAD, -F::ONE),
+        ]);
+    });
     b.with_tag(always("next UTXO allocator transition"), |b| {
         b.push_linear_zero([
             (COL_NEXT_UTXO_ID_AFTER, F::ONE),
             (COL_NEXT_UTXO_ID_BEFORE, -F::ONE),
             (COL_SEL_NEW_UTXO, -F::ONE),
-            (layout::COL_SEL_SET_STORAGE, -F::ONE),
+            (layout::COL_UTXO_LOAD, -F::ONE),
         ]);
     });
 
@@ -209,27 +225,62 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             &coordinator_allocating_opcodes,
         ),
         |b| {
-            // Coord(i) is packed as 2 * i. An instance never runs twice, so
+            // Coord(i) is packed as 4 * i. An instance never runs twice, so
             // a callee's state cannot leak between calls.
             b.push_row(
                 selector_sum(coordinator_allocating_opcodes.iter().copied()),
                 [
                     (COL_CALL_TARGET, F::ONE),
-                    (layout::COL_NEXT_COORD_ID_BEFORE, -F::new(2)),
+                    (layout::COL_NEXT_COORD_ID_BEFORE, -F::new(4)),
                 ],
                 [],
             );
         },
     );
 
+    b.with_tag(
+        opcode_tag("upcast preserves the resolved coroutine", Opcode::Upcast),
+        |b| {
+            let op = Opcode::Upcast;
+            // The fresh write must never supply the lookup's own source.
+            b.push_row(
+                [
+                    (layout::COL_RESOURCE_RESOLVER_ADDR_HANDLE, F::ONE),
+                    (layout::COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE, -F::ONE),
+                ],
+                [(layout::COL_UPCAST_HANDLE_DIFF_INVERSE, F::ONE)],
+                [(op.selector(), F::ONE)],
+            );
+            require_equal(b, op, COL_RESOURCE_RESOLVER_ADDR_CID, COL_CURR_BEFORE);
+            require_equal(
+                b,
+                op,
+                COL_RESOURCE_RESOLVER_VALUE,
+                layout::COL_RESOLVER_SECOND_VALUE,
+            );
+            let [lo, hi] = coroutine_kind_bits(layout::COL_RESOLVER_SECOND_VALUE);
+            b.push_gated_linear_zero(
+                op.selector(),
+                [(lo, F::ONE), (hi, F::ONE), (COL_ONE, -F::ONE)],
+            );
+        },
+    );
     b.with_tag(always("resource resolver access flags"), |b| {
+        b.push_linear_zero([
+            (layout::COL_RESOLVER_SECOND_READ, F::ONE),
+            (layout::COL_SEL_UPCAST, -F::ONE),
+            (layout::COL_SEL_ATTACH, -F::ONE),
+        ]);
         b.push_linear_zero([
             (COL_RESOURCE_RESOLVER_READ, F::ONE),
             (COL_SEL_CALL_METHOD, -F::ONE),
+            (layout::COL_SEL_ATTACH, -F::ONE),
         ]);
         b.push_linear_zero([
             (COL_RESOURCE_RESOLVER_WRITE, F::ONE),
-            (COL_SEL_RECEIVE_NEW_UTXO_HANDLE, -F::ONE),
+            (COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, -F::ONE),
+            (layout::COL_SEL_UPCAST, -F::ONE),
+            (layout::COL_SEL_ENTER_ATTACH, -F::ONE),
             (layout::COL_SEL_SET_STORAGE, -F::ONE),
         ]);
     });
@@ -274,6 +325,22 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         }
     });
 
+    b.with_tag(always("signer key lookup addresses"), |b| {
+        for (offset, address) in layout::COL_SIGNER_KEY_ADDR.into_iter().enumerate() {
+            b.push_row(
+                [(Opcode::AssertSignedBy.selector(), F::ONE)],
+                [
+                    (
+                        layout::COL_SIGNER_INDEX,
+                        F::new(layout::SIGNER_KEY_LIMBS as u64),
+                    ),
+                    (COL_ONE, F::new(offset as u64)),
+                ],
+                [(address, F::ONE)],
+            );
+        }
+    });
+
     // TODO(perf): Consider gating these call-stack address derivations and
     // assigning zero on rows without a call-stack memory access. Nightstream's
     // Ajtai commitment path has sparse/zero fast paths, so at large batch sizes
@@ -306,33 +373,57 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     });
 
     // A root's address is its owner's local index times eight. The packed id
-    // is `2 * index + kind`, so `8 * index` is `4 * owner - 4 * kind`.
+    // is `4 * index + kind`, so `8 * index` is twice the untagged owner.
     b.with_tag(always("event owner mul stride (8)"), |b| {
-        let kind = low_bit(layout::COL_EVENT_OWNER);
+        let [lo, hi] = coroutine_kind_bits(layout::COL_EVENT_OWNER);
         COL_EVENT_OWNER_STRIDE_8
             .iter()
             .enumerate()
             .for_each(|(i, col)| {
                 b.push_linear_zero([
-                    (layout::COL_EVENT_OWNER, F::new(4)),
-                    (kind, -F::new(4)),
+                    (layout::COL_EVENT_OWNER, F::new(2)),
+                    (lo, -F::new(2)),
+                    (hi, -F::new(4)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
             });
     });
-    // UTXO and coordinator roots are in separate memories that share these
-    // address columns. The owner's kind bit activates the write ports of one.
+    // The three coroutine kinds share address columns but use separate root memories.
     b.with_tag(always("trace commitment memory selection"), |b| {
-        let kind = low_bit(layout::COL_EVENT_OWNER);
+        let [lo, hi] = coroutine_kind_bits(layout::COL_EVENT_OWNER);
+        b.push_gated_linear_zero(
+            layout::COL_UTXO_LOAD,
+            [(layout::COL_TOKEN_INTERFACE, F::ONE)],
+        );
+        b.push_row(
+            [(layout::COL_TOKEN_EVENT, F::ONE)],
+            [
+                (COL_ONE, F::ONE),
+                (layout::COL_TOKEN_LOAD, -F::ONE),
+                (layout::COL_SEL_ENTER_ATTACH, -F::ONE),
+                (layout::COL_SEL_ENTER_MINT, -F::ONE),
+                (layout::COL_SEL_GET_TOKEN_STORAGE, -F::ONE),
+                (layout::COL_SEL_UPCAST, -F::ONE),
+                (layout::COL_SEL_ASSERT_SIGNED_BY, -F::ONE),
+                (layout::COL_SEL_RETURN, -F::ONE),
+            ],
+            [],
+        );
+        b.push_gated_linear_zero(layout::COL_TOKEN_LOAD, [(hi, F::ONE), (COL_ONE, -F::ONE)]);
         b.push_row(
             [(layout::COL_EVENT_ACTIVE, F::ONE)],
-            [(kind, F::ONE)],
+            [(hi, F::ONE)],
+            [(layout::COL_TOKEN_EVENT, F::ONE)],
+        );
+        b.push_row(
+            [(layout::COL_EVENT_ACTIVE, F::ONE)],
+            [(lo, F::ONE)],
             [(layout::COL_UTXO_EVENT, F::ONE)],
         );
         b.push_row(
             [(layout::COL_EVENT_ACTIVE, F::ONE)],
-            [(COL_ONE, F::ONE), (kind, -F::ONE)],
+            [(COL_ONE, F::ONE), (lo, -F::ONE), (hi, -F::ONE)],
             [(layout::COL_COORD_EVENT, F::ONE)],
         );
         // The final-root reads name their memory by opcode.
@@ -457,22 +548,35 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         },
     );
 
-    b.with_tag(
-        opcode_tag("new utxo constraints", Opcode::NewUtxo),
-        visit_new_utxo,
-    );
+    for (op, enter, kind, allocator) in [
+        (
+            Opcode::NewUtxo,
+            Opcode::EnterConstructor,
+            CoroutineKind::Utxo,
+            COL_NEXT_UTXO_ID_BEFORE,
+        ),
+        (
+            Opcode::Mint,
+            Opcode::EnterMint,
+            CoroutineKind::Token,
+            COL_NEXT_TOKEN_ID_BEFORE,
+        ),
+    ] {
+        b.with_tag(opcode_tag("allocate constructor target", op), |b| {
+            visit_constructor_call(b, op, kind, allocator)
+        });
+        b.with_tag(opcode_tag("enter constructor constraints", enter), |b| {
+            visit_enter_constructor(b, enter, kind)
+        });
+    }
     b.with_tag(
         opcode_tag(
-            "receive new utxo handle constraints",
-            Opcode::ReceiveNewUtxoHandle,
+            "receive constructor handle constraints",
+            Opcode::ReceiveNewResourceHandle,
         ),
-        visit_receive_new_utxo_handle,
+        visit_receive_new_resource_handle,
     );
 
-    b.with_tag(
-        opcode_tag("enter constructor constraints", Opcode::EnterConstructor),
-        visit_enter_constructor,
-    );
     b.with_tag(
         opcode_tag("yield begin constraints", Opcode::YieldBegin),
         visit_yield_begin,
@@ -484,6 +588,44 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     b.with_tag(
         opcode_tag("return constraints", Opcode::Return),
         visit_return,
+    );
+    b.with_tag(
+        opcode_tag(
+            "resolve attach handles and claim detached token",
+            Opcode::Attach,
+        ),
+        |b| {
+            use layout::*;
+            let op = Opcode::Attach;
+            require_program_call_phase(b, op);
+            require_phase_after(b, op, crate::ivc_state::CurrPhase::CallEnterPending);
+            require_coroutine_kind(b, op, COL_CURR_BEFORE, CoroutineKind::Coord);
+            require_coroutine_kind(b, op, COL_CALL_TARGET, CoroutineKind::Token);
+            require_coroutine_kind(b, op, COL_RESOLVER_SECOND_VALUE, CoroutineKind::Utxo);
+            require_equal(b, op, COL_RESOURCE_RESOLVER_ADDR_CID, COL_CURR_BEFORE);
+            require_equal(b, op, COL_RESOURCE_RESOLVER_VALUE, COL_CALL_TARGET);
+            require_equal(b, op, COL_ARGUMENT_ROOT[0], COL_RESOLVER_SECOND_VALUE);
+        },
+    );
+    b.with_tag(
+        opcode_tag(
+            "bind destination handle in token callback",
+            Opcode::EnterAttach,
+        ),
+        |b| {
+            use layout::*;
+            let op = Opcode::EnterAttach;
+            require_phase_before(b, op, crate::ivc_state::CurrPhase::CallEnterPending);
+            require_phase_after(b, op, crate::ivc_state::CurrPhase::Executing);
+            require_coroutine_kind(b, op, COL_CURR_BEFORE, CoroutineKind::Token);
+            require_equal(b, op, COL_RESOURCE_RESOLVER_ADDR_CID, COL_CURR_BEFORE);
+            require_equal(
+                b,
+                op,
+                COL_RESOURCE_RESOLVER_VALUE,
+                COL_PENDING_VALUE_BEFORE[0],
+            );
+        },
     );
     b.with_tag(
         opcode_tag("call method constraints", Opcode::CallMethod),
@@ -581,11 +723,11 @@ fn phase_bits(column: usize) -> [usize; 4] {
     [bits.start, bits.start + 1, bits.start + 2, bits.start + 3]
 }
 
-fn low_bit(column: usize) -> usize {
-    range_check_layout()
+fn coroutine_kind_bits(column: usize) -> [usize; 2] {
+    let bits = range_check_layout()
         .bit_columns_for(column)
-        .expect("packed coroutine ID column has decomposition bits")
-        .start
+        .expect("packed coroutine ID column has decomposition bits");
+    [bits.start, bits.start + 1]
 }
 
 fn require_coroutine_kind(
@@ -594,10 +736,12 @@ fn require_coroutine_kind(
     column: usize,
     expected: CoroutineKind,
 ) {
+    let [lo, hi] = coroutine_kind_bits(column);
     b.push_gated_linear_zero(
         opcode.selector(),
         [
-            (low_bit(column), F::ONE),
+            (lo, F::ONE),
+            (hi, F::new(2)),
             (COL_ONE, -F::new(u64::from(expected.tag()))),
         ],
     );
@@ -622,7 +766,7 @@ pub(crate) fn require_utxo_index(
         opcode.selector(),
         [
             (utxo, F::ONE),
-            (index, -F::new(2)),
+            (index, -F::new(4)),
             (COL_ONE, -F::new(u64::from(CoroutineKind::Utxo.tag()))),
         ],
     );
@@ -730,23 +874,21 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         [(phase_before[2], F::ONE), (phase_before[3], F::ONE)],
     );
     require_coroutine_kind(b, Opcode::Return, COL_CURR_AFTER, CoroutineKind::Coord);
-    // Constructors and the entry coordinator have statically unit return
-    // types. A nonzero frame caller means that a caller-side Receive* event
-    // still has to consume this frame. Constructor and entry indicators are
-    // mutually exclusive, so this relation is linear.
-    b.push_gated_linear_zero(
-        Opcode::Return.selector(),
+    // A mint returns from a token coroutine on a constructor frame, so both flags are set.
+    b.push_row(
+        [(Opcode::Return.selector(), F::ONE)],
         [
-            (COL_RETURN_REQUIRES_UNIT, F::ONE),
-            (COL_CALL_FRAME_CONSTRUCTOR, -F::ONE),
-            (layout::COL_CALL_TARGET_IS_ZERO, -F::ONE),
+            (coroutine_kind_bits(COL_CURR_BEFORE)[1], F::ONE),
+            (COL_CALL_FRAME_CONSTRUCTOR, F::ONE),
+            (layout::COL_CALL_TARGET_IS_ZERO, F::ONE),
         ],
+        [(COL_UNIT_RETURN_WEIGHT, F::ONE)],
     );
     for limb in COL_RESULT_ROOT {
-        b.push_row([(COL_RETURN_REQUIRES_UNIT, F::ONE)], [(limb, F::ONE)], []);
+        b.push_row([(COL_UNIT_RETURN_WEIGHT, F::ONE)], [(limb, F::ONE)], []);
     }
     // A root return pops immediately. Other program returns leave their frame
-    // live for ReceiveCallResult or ReceiveNewUtxoHandle to consume.
+    // live for ReceiveCallResult or ReceiveNewResourceHandle to consume.
     b.push_gated_linear_zero(
         Opcode::Return.selector(),
         [
@@ -758,7 +900,7 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     let root_phase = F::new(crate::ivc_state::CurrPhase::Executing.value() as u64);
     let method_phase = F::new(crate::ivc_state::CurrPhase::CallResultPending.value() as u64);
     let constructor_phase =
-        F::new(crate::ivc_state::CurrPhase::NewUtxoHandlePending.value() as u64);
+        F::new(crate::ivc_state::CurrPhase::NewResourceHandlePending.value() as u64);
     // Start with the method receive phase, then select the root or constructor
     // phase using their mutually exclusive indicators.
     b.push_gated_linear_zero(
@@ -848,64 +990,56 @@ fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     );
 }
 
-fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
-    require_coroutine_kind(
-        b,
-        Opcode::EnterConstructor,
-        COL_CURR_BEFORE,
-        CoroutineKind::Utxo,
-    );
-    require_phase_before(
-        b,
-        Opcode::EnterConstructor,
-        crate::ivc_state::CurrPhase::CtorEnterPending,
-    );
-    require_phase_after(
-        b,
-        Opcode::EnterConstructor,
-        crate::ivc_state::CurrPhase::ConstructorExecuting,
-    );
+fn visit_enter_constructor(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    op: Opcode,
+    kind: CoroutineKind,
+) {
+    require_coroutine_kind(b, op, COL_CURR_BEFORE, kind);
+    require_phase_before(b, op, crate::ivc_state::CurrPhase::CtorEnterPending);
+    require_phase_after(b, op, crate::ivc_state::CurrPhase::ConstructorExecuting);
 }
 
-fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
-    require_coroutine_kind(b, Opcode::NewUtxo, COL_CURR_BEFORE, CoroutineKind::Coord);
-    require_program_call_phase(b, Opcode::NewUtxo);
-    require_phase_after(
-        b,
-        Opcode::NewUtxo,
-        crate::ivc_state::CurrPhase::CtorEnterPending,
-    );
+fn visit_constructor_call(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    op: Opcode,
+    kind: CoroutineKind,
+    allocator: usize,
+) {
+    require_coroutine_kind(b, op, COL_CURR_BEFORE, CoroutineKind::Coord);
+    require_program_call_phase(b, op);
+    require_phase_after(b, op, crate::ivc_state::CurrPhase::CtorEnterPending);
     b.push_gated_linear_zero(
-        Opcode::NewUtxo.selector(),
+        op.selector(),
         [
             (COL_CALL_TARGET, F::ONE),
-            (COL_NEXT_UTXO_ID_BEFORE, -F::new(2)),
-            (COL_ONE, -F::ONE),
+            (allocator, -F::new(4)),
+            (COL_ONE, -F::from_u32(kind.tag())),
         ],
     );
 }
 
-fn visit_receive_new_utxo_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+fn visit_receive_new_resource_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_phase_before(
         b,
-        Opcode::ReceiveNewUtxoHandle,
-        crate::ivc_state::CurrPhase::NewUtxoHandlePending,
+        Opcode::ReceiveNewResourceHandle,
+        crate::ivc_state::CurrPhase::NewResourceHandlePending,
     );
     require_equal(
         b,
-        Opcode::ReceiveNewUtxoHandle,
+        Opcode::ReceiveNewResourceHandle,
         COL_CALL_TARGET,
         COL_CURR_BEFORE,
     );
     require_equal(
         b,
-        Opcode::ReceiveNewUtxoHandle,
+        Opcode::ReceiveNewResourceHandle,
         COL_CURR_PHASE_AFTER,
         COL_CALL_FRAME_SAVED_PHASE,
     );
     require_equal(
         b,
-        Opcode::ReceiveNewUtxoHandle,
+        Opcode::ReceiveNewResourceHandle,
         COL_RESOURCE_RESOLVER_ADDR_CID,
         COL_CURR_BEFORE,
     );
@@ -1017,12 +1151,19 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     use Opcode::*;
     use layout::{
         COL_ARGUMENT_ROOT, COL_METHOD_HASH_VALUE, COL_PENDING_METHOD_AFTER,
-        COL_PENDING_METHOD_BEFORE, COL_PENDING_ROOT_AFTER, COL_PENDING_ROOT_BEFORE,
+        COL_PENDING_METHOD_BEFORE, COL_PENDING_VALUE_AFTER, COL_PENDING_VALUE_BEFORE,
     };
     // Entry must match the caller's method selector or contract-specific script or constructor hash.
-    let argument_writers = [CallMethod, CallCoordinator, BeginExecution, NewUtxo];
+    let argument_writers = [
+        Attach,
+        CallMethod,
+        CallCoordinator,
+        BeginExecution,
+        NewUtxo,
+        Mint,
+    ];
     let result_writers = [Return, ExitEffectHandler];
-    let callee_identity_writers = argument_writers;
+    let callee_identity_writers = [CallMethod, CallCoordinator, BeginExecution, NewUtxo, Mint];
     // Padding keeps every carried column through its own rule.
     let keepers = |writers: &[Opcode]| {
         selector_sum(
@@ -1038,9 +1179,9 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         b.push_row(selectors, [(left, F::ONE), (right, -F::ONE)], []);
     };
     b.with_tag(always("call hand-off registers"), |b| {
-        let root_keepers = keepers(&[argument_writers.as_slice(), &result_writers].concat());
+        let value_keepers = keepers(&[argument_writers.as_slice(), &result_writers].concat());
         for i in 0..4 {
-            let after = COL_PENDING_ROOT_AFTER[i];
+            let after = COL_PENDING_VALUE_AFTER[i];
             equal(
                 b,
                 selector_sum(argument_writers),
@@ -1048,7 +1189,7 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 COL_ARGUMENT_ROOT[i],
             );
             equal(b, selector_sum(result_writers), after, COL_RESULT_ROOT[i]);
-            equal(b, root_keepers.clone(), after, COL_PENDING_ROOT_BEFORE[i]);
+            equal(b, value_keepers.clone(), after, COL_PENDING_VALUE_BEFORE[i]);
         }
         let identity_keepers = keepers(&callee_identity_writers);
         for i in 0..8 {
@@ -1067,14 +1208,14 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             );
         }
     });
-    let argument_readers = [EnterCall, EnterConstructor];
+    let argument_readers = [EnterCall, EnterConstructor, EnterMint];
     let callee_identity_readers = argument_readers;
     let result_readers = [ReceiveCallResult, ResumeEffect];
     b.with_tag(
         opcode_tags("entry takes the caller's argument", &argument_readers),
         |b| {
             for i in 0..4 {
-                let before = COL_PENDING_ROOT_BEFORE[i];
+                let before = COL_PENDING_VALUE_BEFORE[i];
                 equal(
                     b,
                     selector_sum(argument_readers),
@@ -1088,7 +1229,7 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         opcode_tags("caller takes the callee's result", &result_readers),
         |b| {
             for i in 0..4 {
-                let before = COL_PENDING_ROOT_BEFORE[i];
+                let before = COL_PENDING_VALUE_BEFORE[i];
                 equal(b, selector_sum(result_readers), COL_RESULT_ROOT[i], before);
             }
         },
@@ -1119,7 +1260,7 @@ fn instance_stack_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         );
         b.push_linear_zero([
             (COL_INSTANCE_POP, F::ONE),
-            (COL_SEL_RECEIVE_NEW_UTXO_HANDLE, -F::ONE),
+            (COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, -F::ONE),
             (COL_SEL_RECEIVE_CALL_RESULT, -F::ONE),
         ]);
         b.push_linear_zero([
@@ -1153,8 +1294,8 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
     b.with_tag(
         opcode_tags(
-            "scope mutation runs in a live guest body",
-            &[push, add, pop],
+            "scope changes and signer assertions require a live guest body",
+            &[push, add, pop, Opcode::AssertSignedBy, Opcode::Upcast],
         ),
         |b| {
             // Allowed: Executing, ConstructorExecuting, Registering and
@@ -1167,14 +1308,14 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 [(COL_PHASE_BEFORE_BITS_1_AND_2, F::ONE)],
             );
             b.push_row(
-                selector_sum([push, add, pop]),
+                selector_sum([push, add, pop, Opcode::AssertSignedBy, Opcode::Upcast]),
                 [(bits[3], F::ONE), (COL_PHASE_BEFORE_BITS_1_AND_2, F::ONE)],
                 [],
             );
             // The body keeps running: a mutation cannot fake a handler
             // exit or any other phase change.
             b.push_row(
-                selector_sum([push, add, pop]),
+                selector_sum([push, add, pop, Opcode::AssertSignedBy, Opcode::Upcast]),
                 [
                     (COL_CURR_PHASE_AFTER, F::ONE),
                     (COL_CURR_PHASE_BEFORE, -F::ONE),
@@ -1256,6 +1397,8 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
     let fresh = [
         Opcode::NewUtxo,
+        Opcode::Mint,
+        Opcode::Attach,
         Opcode::CallMethod,
         Opcode::CallCoordinator,
         enter,
@@ -1269,6 +1412,8 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 push,
                 pop,
                 Opcode::NewUtxo,
+                Opcode::Mint,
+                Opcode::Attach,
                 Opcode::CallMethod,
                 Opcode::CallCoordinator,
                 enter,

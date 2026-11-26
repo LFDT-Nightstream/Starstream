@@ -1,4 +1,7 @@
 mod batch;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+
 pub use batch::proving;
 mod ccs;
 mod commitment;
@@ -25,9 +28,9 @@ pub use batch::verify_sat_batched;
 pub use batch::verify_sat_with_commitments;
 
 /// Final outer event roots, keyed by packed coroutine INSTANCE identity:
-/// coordinator i = 2*i, UTXO i = 2*i+1. Different instances of the same program
+/// see [`CoroutineId::encoded`]. Different instances of the same program
 /// have separate chains. Contains exactly the instances that emitted events.
-pub type TraceCommitments = std::collections::BTreeMap<u32, [u64; 4]>;
+pub type TraceCommitments = BTreeMap<u32, [u64; 4]>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -98,11 +101,12 @@ pub enum Unsatisfied {
 }
 
 /// Build the circuit witness for `trace` and check that it satisfies every
-/// relation currently implemented by the prover.
+/// relation currently implemented by the prover. Signer requirements are checked
+/// against the supplied transaction signer IDs.
 ///
 /// Host-side validation for diagnostics and tests; does not construct a proof.
-pub fn verify_sat(trace: &Trace) -> Result<(), Error> {
-    verify_sat_batched(trace, 1)
+pub fn verify_sat(trace: &Trace, signers: &BTreeSet<u64>) -> Result<(), Error> {
+    verify_sat_batched(trace, 1, signers)
 }
 
 #[cfg(test)]

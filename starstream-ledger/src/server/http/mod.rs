@@ -301,6 +301,10 @@ impl Ledger {
         let crate::Transaction {
             inputs, outputs, ..
         } = &transaction;
+        // TODO: Once required signers carry full keys, check each against the envelope signers.
+        if !transaction.required_signers.is_empty() {
+            return Err(TransactionPostError::InputUnauthorized);
+        }
         if inputs.is_empty() {
             return Err(TransactionPostError::InputsEmpty);
         }

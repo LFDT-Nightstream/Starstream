@@ -26,12 +26,13 @@ use crate::ccs::layout::{
     COL_CALL_TARGET, COL_CURR_BEFORE, COL_ENABLED_METHOD_LOG_ADDR,
     COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_ORDINAL, COL_ENABLED_METHOD_LOG_UTXO,
     COL_EVENT_OWNER_STRIDE_8, COL_IN_WORDS, COL_METHOD_APPEND, COL_METHOD_HASH_VALUE,
-    COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_OUT_WORDS,
+    COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_ONE, COL_OUT_WORDS,
     COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
     COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
     COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI,
-    COL_SEL_RECEIVE_CALL_RESULT, COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT,
-    COL_SEL_RETURN, COL_SEL_YIELD_BEGIN, range_check_layout,
+    COL_SEL_RECEIVE_CALL_RESULT, COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, COL_SEL_RESUME_EFFECT,
+    COL_SEL_RETURN, COL_SEL_YIELD_BEGIN, COL_SIGNER_INDEX, COL_SIGNER_KEY_ADDR, SIGNER_KEY_LIMBS,
+    range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -56,7 +57,12 @@ pub enum MemoryId {
     EnabledMethodLogGeneration,
     EnabledMethodLogOrdinal,
     MethodTable,
+    SignerKey,
+    SignerPresent,
     ResourceResolver,
+    TokenOwner,
+    TokenInterface,
+    TokenTraceCommitments,
     UtxoTraceCommitments,
     CoordTraceCommitments,
 }
@@ -211,7 +217,7 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
                 address_columns: vec![COL_INSTANCE_DEPTH_BEFORE],
                 value_column: COL_RESOURCE_RESOLVER_VALUE,
                 kind: MemoryPortKind::Read,
-                activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_UTXO_HANDLE),
+                activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE),
             },
         ],
     });
@@ -225,8 +231,77 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
     memories.extend_from_slice(&enabled_method_log_layout());
 
     memories.extend_from_slice(&method_table_layout());
+    let signer_read = |address, value| MemoryPortSpec {
+        address_columns: vec![address],
+        value_column: value,
+        kind: MemoryPortKind::Read,
+        activation: MemoryPortActivation::When(Opcode::AssertSignedBy.selector()),
+    };
+    memories.push(MemorySpec {
+        id: MemoryId::SignerKey,
+        kind: MemoryKind::Rom,
+        ports: COL_SIGNER_KEY_ADDR
+            .into_iter()
+            .zip(COL_METHOD_HASH_VALUE)
+            .map(|(address, value)| signer_read(address, value))
+            .collect(),
+    });
+    memories.push(MemorySpec {
+        id: MemoryId::SignerPresent,
+        kind: MemoryKind::Rom,
+        ports: vec![signer_read(COL_SIGNER_INDEX, COL_ONE)],
+    });
 
     memories.extend_from_slice(&resource_resolver_layout());
+    // The mint or setter establishes the interface for subsequent token events.
+    use crate::ccs::layout::{COL_EVENT_OWNER, COL_TOKEN_INTERFACE, COL_TOKEN_INTERFACE_WRITE};
+    memories.push(MemorySpec {
+        id: MemoryId::TokenInterface,
+        kind: MemoryKind::Ram,
+        ports: vec![
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: COL_TOKEN_INTERFACE,
+                kind: MemoryPortKind::Write {
+                    value_before_column: None,
+                },
+                activation: MemoryPortActivation::When(COL_TOKEN_INTERFACE_WRITE),
+            },
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: COL_TOKEN_INTERFACE,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(Opcode::EnterAttach.selector()),
+            },
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: COL_TOKEN_INTERFACE,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(Opcode::GetTokenStorage.selector()),
+            },
+        ],
+    });
+    // Zero is detached. Packed UTXO ids are nonzero, including Utxo(0).
+    memories.push(MemorySpec {
+        id: MemoryId::TokenOwner,
+        kind: MemoryKind::Ram,
+        ports: vec![
+            MemoryPortSpec {
+                address_columns: vec![COL_CALL_TARGET],
+                value_column: crate::ccs::layout::COL_RESOLVER_SECOND_VALUE,
+                kind: MemoryPortKind::Write {
+                    value_before_column: Some(crate::ccs::layout::COL_UNBOUND_VALUE),
+                },
+                activation: MemoryPortActivation::When(Opcode::Attach.selector()),
+            },
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: crate::ccs::layout::COL_OUTPUT_TOKEN_OWNER,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(Opcode::GetTokenStorage.selector()),
+            },
+        ],
+    });
 
     memories.extend_from_slice(&trace_commitments_layout());
 
@@ -299,11 +374,11 @@ fn effect_scope_layout() -> [MemorySpec<MemoryId>; 4] {
     ]
 }
 
-fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 2] {
+fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 3] {
     use crate::ccs::layout::{
         COL_COORD_EVENT, COL_SEL_FINALIZE_COORDINATOR, COL_SEL_SKIP_CONSUMED, COL_UTXO_EVENT,
     };
-    let memory = |id, event, read| MemorySpec {
+    let memory = |id, event, read: Option<usize>| MemorySpec {
         id,
         kind: MemoryKind::Ram,
         ports: COL_EVENT_OWNER_STRIDE_8
@@ -318,26 +393,33 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 2] {
                 },
                 activation: MemoryPortActivation::When(event),
             })
-            .chain(COL_EVENT_OWNER_STRIDE_8.into_iter().zip(COL_IN_WORDS).map(
-                |(address, value)| MemoryPortSpec {
-                    address_columns: vec![address],
-                    value_column: value,
-                    kind: MemoryPortKind::Read,
-                    activation: MemoryPortActivation::When(read),
-                },
-            ))
+            .chain(read.into_iter().flat_map(|read| {
+                COL_EVENT_OWNER_STRIDE_8.into_iter().zip(COL_IN_WORDS).map(
+                    move |(address, value)| MemoryPortSpec {
+                        address_columns: vec![address],
+                        value_column: value,
+                        kind: MemoryPortKind::Read,
+                        activation: MemoryPortActivation::When(read),
+                    },
+                )
+            }))
             .collect(),
     };
     [
         memory(
+            MemoryId::TokenTraceCommitments,
+            crate::ccs::layout::COL_TOKEN_EVENT,
+            None,
+        ),
+        memory(
             MemoryId::UtxoTraceCommitments,
             COL_UTXO_EVENT,
-            COL_SEL_SKIP_CONSUMED,
+            Some(COL_SEL_SKIP_CONSUMED),
         ),
         memory(
             MemoryId::CoordTraceCommitments,
             COL_COORD_EVENT,
-            COL_SEL_FINALIZE_COORDINATOR,
+            Some(COL_SEL_FINALIZE_COORDINATOR),
         ),
     ]
 }
@@ -363,7 +445,7 @@ fn resource_resolver_layout() -> [MemorySpec<MemoryId>; 1] {
                     //
                     // that works because utxo ids are always greater than 0 in
                     // our encoding
-                    value_before_column: Some(crate::ccs::layout::COL_RESOURCE_RESOLVER_BEFORE),
+                    value_before_column: Some(crate::ccs::layout::COL_UNBOUND_VALUE),
                 },
                 activation: MemoryPortActivation::When(COL_RESOURCE_RESOLVER_WRITE),
             },
@@ -372,6 +454,17 @@ fn resource_resolver_layout() -> [MemorySpec<MemoryId>; 1] {
                 value_column,
                 kind: MemoryPortKind::Read,
                 activation: MemoryPortActivation::When(COL_RESOURCE_RESOLVER_READ),
+            },
+            MemoryPortSpec {
+                address_columns: vec![
+                    COL_RESOURCE_RESOLVER_ADDR_CID,
+                    crate::ccs::layout::COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE,
+                ],
+                value_column: crate::ccs::layout::COL_RESOLVER_SECOND_VALUE,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(
+                    crate::ccs::layout::COL_RESOLVER_SECOND_READ,
+                ),
             },
         ],
     }]
@@ -665,7 +758,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 8] {
                     address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_FRAME_SAVED_PHASE,
                     kind: MemoryPortKind::Read,
-                    activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_UTXO_HANDLE),
+                    activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE),
                 },
                 MemoryPortSpec {
                     address_columns: vec![COL_CALL_STACK_FRAME],
@@ -744,6 +837,9 @@ pub(crate) fn sanity_checking_policy(
             (EnabledMethodLogGeneration, RamInitialization::Zero),
             (EnabledMethodLogOrdinal, RamInitialization::Zero),
             (ResourceResolver, RamInitialization::Zero),
+            (TokenInterface, RamInitialization::Zero),
+            (TokenOwner, RamInitialization::Zero),
+            (TokenTraceCommitments, RamInitialization::Zero),
             (UtxoTraceCommitments, RamInitialization::Zero),
             (CoordTraceCommitments, RamInitialization::Zero),
         ],
@@ -777,6 +873,41 @@ pub(crate) fn preload_tables(
     preload
 }
 
+pub(crate) fn preload_signers(preload: &mut MemoryPreload<MemoryId>, signers: &BTreeSet<u64>) {
+    for (index, &key) in (0u32..).zip(signers) {
+        for offset in 0..SIGNER_KEY_LIMBS {
+            let address = index * SIGNER_KEY_LIMBS as u32 + offset as u32;
+            let limb = (key >> (offset as u32 * u32::BITS)) as u32;
+            preload.insert(MemoryId::SignerKey, vec![address], limb);
+        }
+        preload.insert(MemoryId::SignerPresent, vec![index], 1);
+    }
+}
+
+/// Initial memory authenticated by the transaction's Nebula program.
+pub(crate) fn transaction_preload(
+    methods: &[starstream_interleaving_spec::MethodHash],
+    statement: &starstream_interleaving_spec::TransactionStatement,
+) -> Result<MemoryPreload<MemoryId>, crate::Error> {
+    use crate::{CoroutineId, Unsatisfied::TransactionStatement};
+    let mut preload = preload_tables(methods);
+    preload_signers(&mut preload, &statement.signers);
+    for (index, input) in statement.input_tokens.iter().enumerate() {
+        if input.owner as usize >= statement.inputs.len() {
+            return Err(TransactionStatement.into());
+        }
+        let index = u32::try_from(index).map_err(|_| TransactionStatement)?;
+        let token = CoroutineId::Token(index)
+            .checked_encoded()
+            .ok_or(TransactionStatement)?;
+        let owner = CoroutineId::Utxo(input.owner)
+            .checked_encoded()
+            .ok_or(TransactionStatement)?;
+        preload.insert(MemoryId::TokenOwner, vec![token], owner);
+    }
+    Ok(preload)
+}
+
 impl MemoryId {
     pub const fn name(self) -> &'static str {
         match self {
@@ -800,7 +931,12 @@ impl MemoryId {
             MemoryId::EnabledMethodLogGeneration => "enabled_method_log_generation",
             MemoryId::EnabledMethodLogOrdinal => "enabled_method_log_ordinal",
             MemoryId::MethodTable => "method_table",
+            MemoryId::SignerKey => "signer_key",
+            MemoryId::SignerPresent => "signer_present",
+            MemoryId::TokenInterface => "token_interface",
+            MemoryId::TokenOwner => "token_owner",
             MemoryId::ResourceResolver => "resource_resolver",
+            MemoryId::TokenTraceCommitments => "token_trace_commitments",
             MemoryId::UtxoTraceCommitments => "utxo_trace_commitments",
             MemoryId::CoordTraceCommitments => "coord_trace_commitments",
         }

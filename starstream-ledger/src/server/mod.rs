@@ -20,7 +20,9 @@ use wasmtime::component::{Component, ResourceTable};
 use wasmtime::error::Context as _;
 
 use crate::wrpc::bindings;
-use crate::{Block, CardanoCtx, TransactionOutput, encode_digest, parse_digest};
+use crate::{
+    Block, CardanoCtx, TransactionOutput, encode_digest, parse_contract_external_id, parse_digest,
+};
 
 #[cfg(feature = "genesis")]
 mod genesis;
@@ -176,17 +178,18 @@ impl Ledger {
 
     async fn compile(
         &self,
-        imports: &mut HashMap<Box<str>, starstream_runtime::Contract<Ctx>>,
+        imports: &mut HashMap<[u8; 32], starstream_runtime::Contract<Ctx>>,
         external_id: Option<&str>,
         wasm: &[u8],
     ) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
-        struct ContractLookup<'a>(&'a mut HashMap<Box<str>, starstream_runtime::Contract<Ctx>>);
+        struct ContractLookup<'a>(&'a mut HashMap<[u8; 32], starstream_runtime::Contract<Ctx>>);
         impl starstream_runtime::ContractLookup<Ctx> for ContractLookup<'_> {
             fn get_contract(
                 &self,
                 external_id: &str,
             ) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
-                let contract = self.0.get(external_id).with_context(|| {
+                let digest = parse_contract_external_id(external_id)?;
+                let contract = self.0.get(&digest).with_context(|| {
                     error!(external_id, "unresolved contract import");
                     format!("contract identified by `external-id` `{external_id}` not found")
                 })?;
@@ -210,12 +213,12 @@ impl Ledger {
             .chain(script_external_ids.into_iter().flatten())
             .collect::<wasmtime::Result<_>>()?;
         for external_id in external_ids {
-            if imports.contains_key(external_id) {
+            let digest = parse_contract_external_id(external_id).with_context(|| {
+                format!("failed to parse `external-id` `{external_id}` as contract digest")
+            })?;
+            if imports.contains_key(&digest) {
                 continue;
             }
-            let digest = parse_digest(external_id).with_context(|| {
-                format!("failed to parse `external-id` `{external_id}` as multibase multihash")
-            })?;
             let wasm = {
                 let contracts = self.contracts.read().await;
                 let contract = contracts.get(&digest).with_context(|| {
@@ -223,8 +226,9 @@ impl Ledger {
                 })?;
                 contract.wasm.clone()
             };
-            let contract = Box::pin(self.compile(imports, Some(external_id), &wasm)).await?;
-            imports.insert(external_id.into(), contract);
+            let contract =
+                Box::pin(self.compile(imports, Some(&encode_digest(&digest)), &wasm)).await?;
+            imports.insert(digest, contract);
         }
         starstream_runtime::Contract::new(&component, external_id, ContractLookup(imports))
     }

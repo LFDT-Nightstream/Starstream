@@ -19,66 +19,69 @@ pub struct CapturedExecution {
 /// coordination-script call.
 pub fn decode_captured_execution(
     registry: &neo_wasm::WasmtimeTraceRegistry,
-    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
+    entry_handles: impl IntoIterator<Item = ResourceHandle>,
 ) -> wasmtime::Result<CapturedExecution> {
-    decode_captured_transaction(registry, entry_utxo_handles, &[])
+    decode_captured_transaction(registry, entry_handles, &[], &[])
 }
 
-/// Decode loaded inputs followed by constructed UTXOs, using the ledger's ABI lists.
+/// Decode input UTXOs and tokens using the ledger's method lists and token owner indices.
 pub fn decode_captured_transaction(
     registry: &neo_wasm::WasmtimeTraceRegistry,
-    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
+    entry_handles: impl IntoIterator<Item = ResourceHandle>,
     input_methods: &[Vec<MethodHash>],
+    input_token_owners: &[u32],
 ) -> wasmtime::Result<CapturedExecution> {
-    let mut entry_utxo_handles = entry_utxo_handles.into_iter();
+    let mut entry_handles = entry_handles.into_iter();
     let mut traces = Vec::new();
     for (instance, captured) in registry
         .instances()
         .map_err(|error| wasmtime::format_err!("trace capture failed: {error}"))?
     {
-        let trace = neo_wasm::traces_from_wasmtime_steps_with_host_events(
-            captured.steps(),
-            captured.artifacts(),
-            CommChainState::default(),
-        )
-        .map_err(|error| {
-            wasmtime::format_err!("failed to normalize instance {instance}: {error}")
-        })?;
-        let blocks = absorbed_event_blocks(&trace);
-        let blocks = blocks.iter().map(|block| block.words).collect::<Vec<_>>();
-        let trace = decode_tagged_blocks(&blocks, &mut entry_utxo_handles).map_err(|error| {
-            wasmtime::format_err!("failed to decode instance {instance}: {error}")
+        let trace = decode_captured_instance(captured, &mut entry_handles).map_err(|error| {
+            wasmtime::format_err!("failed to decode instance {instance}: {error:#}")
         })?;
         traces.push(trace);
     }
-    let transaction = interleave_transaction_with_inputs(&traces, input_methods)
-        .map_err(|error| wasmtime::format_err!("failed to interleave traces: {error}"))?;
+    let transaction =
+        interleave_transaction_with_inputs(&traces, input_methods, input_token_owners)
+            .map_err(|error| wasmtime::format_err!("failed to interleave traces: {error}"))?;
     Ok(CapturedExecution {
         traces,
         transaction,
     })
 }
 
-/// Decode a traced coordination-script call and check its execution relation.
-///
-/// TODO: This is host-side validation only. Transaction I/O and recursive proof
-/// binding are intentionally outside this initial integration.
-pub fn check_captured_execution(
-    registry: &neo_wasm::WasmtimeTraceRegistry,
-    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
-) -> wasmtime::Result<CapturedExecution> {
-    check_captured_transaction(registry, entry_utxo_handles, &[])
+/// Recover the semantic steps of one captured guest, supplying its root-local input handle on load.
+pub fn decode_captured_instance(
+    captured: &neo_wasm::WasmtimeTraceState,
+    entry_handles: &mut impl Iterator<Item = ResourceHandle>,
+) -> wasmtime::Result<Trace> {
+    let trace = neo_wasm::traces_from_wasmtime_steps_with_host_events(
+        captured.steps(),
+        captured.artifacts(),
+        CommChainState::default(),
+    )
+    .map_err(|error| wasmtime::format_err!("failed to normalize Wasm trace: {error}"))?;
+    let blocks = absorbed_event_blocks(&trace)
+        .into_iter()
+        .map(|block| block.words)
+        .collect::<Vec<_>>();
+    Ok(decode_tagged_blocks(&blocks, entry_handles)?)
 }
 
-/// Check loading and execution; transaction I/O binding remains deferred.
+/// Check the interleaved execution reconstructed from the captured calls.
 pub fn check_captured_transaction(
     registry: &neo_wasm::WasmtimeTraceRegistry,
-    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
+    entry_handles: impl IntoIterator<Item = ResourceHandle>,
     input_methods: &[Vec<MethodHash>],
+    input_token_owners: &[u32],
 ) -> wasmtime::Result<CapturedExecution> {
-    let execution = decode_captured_transaction(registry, entry_utxo_handles, input_methods)?;
-    starstream_interleaving_prover::verify_sat(&execution.transaction.execution).map_err(
-        |error| wasmtime::format_err!("interleaving relation rejected execution: {error}"),
-    )?;
+    let execution =
+        decode_captured_transaction(registry, entry_handles, input_methods, input_token_owners)?;
+    starstream_interleaving_prover::verify_sat(
+        &execution.transaction.execution,
+        &execution.transaction.statement.signers,
+    )
+    .map_err(|error| wasmtime::format_err!("interleaving relation rejected execution: {error}"))?;
     Ok(execution)
 }

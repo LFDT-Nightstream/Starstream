@@ -47,7 +47,7 @@ fn constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -69,7 +69,7 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -217,7 +217,7 @@ fn method_call_result_trace(
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -324,7 +324,7 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -384,7 +384,7 @@ fn two_utxo_trace(first_method: MethodHash, second_method: MethodHash) -> Trace 
             Step::Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
-            Step::ReceiveNewUtxoHandle {
+            Step::ReceiveNewResourceHandle {
                 resource: ResourceHandle(handle).into(),
             },
         ]);
@@ -730,7 +730,7 @@ fn cases() -> [Case; 32] {
 }
 
 fn circuit_outcome(case: &Case) -> Outcome {
-    match verify_sat(&case.trace) {
+    match verify_sat(&case.trace, &Default::default()) {
         Ok(()) => Outcome::Accept,
         Err(Error::Unsatisfied(_)) => Outcome::Reject,
         Err(error) => panic!("{}: circuit check failed: {error}", case.name),
@@ -770,7 +770,7 @@ fn circuit_and_quint_agree() {
         // Exercise both internal RAM dependencies and cross-batch boundaries,
         // with non-divisors also testing final padding.
         for size in [1, 3, 8] {
-            let outcome = match verify_sat_batched(&case.trace, size) {
+            let outcome = match verify_sat_batched(&case.trace, size, &Default::default()) {
                 Ok(()) => Outcome::Accept,
                 Err(Error::Unsatisfied(_)) => Outcome::Reject,
                 Err(error) => panic!("{}: batch size {size}: {error}", case.name),
@@ -958,7 +958,7 @@ fn effect_scopes_circuit_and_quint_agree() {
             for size in [1, 3] {
                 assert!(
                     matches!(
-                        verify_sat_batched(&case.trace, size),
+                        verify_sat_batched(&case.trace, size, &Default::default()),
                         Err(Error::Unsatisfied(_))
                     ),
                     "{}",
@@ -1135,7 +1135,7 @@ fn script_calls_circuit_and_quint_agree() {
             case.name
         );
         for size in [1, 3, 8] {
-            let outcome = match verify_sat_batched(&case.trace, size) {
+            let outcome = match verify_sat_batched(&case.trace, size, &Default::default()) {
                 Ok(()) => Outcome::Accept,
                 Err(Error::Unsatisfied(_)) => Outcome::Reject,
                 Err(error) => panic!("{}: batch size {size}: {error}", case.name),

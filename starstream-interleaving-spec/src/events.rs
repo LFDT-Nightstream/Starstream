@@ -15,11 +15,18 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
+    Upcast,
+    Attach,
+    EnterAttach,
+    AssertSignedBy,
     CallCoordinator,
     SetStorage,
     GetStorage,
+    GetTokenStorage,
+    Mint,
+    EnterMint,
     NewUtxo,
-    ReceiveNewUtxoHandle,
+    ReceiveNewResourceHandle,
     EnterConstructor,
     YieldBegin,
     RegisterMethod,
@@ -45,12 +52,22 @@ pub enum Word {
     Result(usize),
     Handled,
     FrameId,
+    IsToken,
+    TokenInterface,
+    Destination,
+    SourceHandle,
 }
 
 impl EventKind {
     #[must_use]
     pub const fn from_tag(tag: u64) -> Option<Self> {
         Some(match tag {
+            25 => Self::Mint,
+            26 => Self::EnterMint,
+            24 => Self::GetTokenStorage,
+            23 => Self::Upcast,
+            21 => Self::Attach,
+            22 => Self::EnterAttach,
             1 => Self::NewUtxo,
             2 => Self::EnterConstructor,
             3 => Self::YieldBegin,
@@ -64,27 +81,35 @@ impl EventKind {
             11 => Self::EnterEffectHandler,
             12 => Self::ExitEffectHandler,
             13 => Self::ResumeEffect,
-            14 => Self::ReceiveNewUtxoHandle,
+            14 => Self::ReceiveNewResourceHandle,
             15 => Self::ReceiveCallResult,
             16 => Self::PushEffectHandlerFrame,
             17 => Self::AddEffectHandler,
             18 => Self::PopEffectHandlerFrame,
             19 => Self::CallCoordinator,
+            20 => Self::AssertSignedBy,
             _ => return None,
         })
     }
 
     pub fn for_step(step: &Step) -> Option<Self> {
         Some(match step {
+            Step::AssertSignedBy { .. } => Self::AssertSignedBy,
             Step::CallCoordinator { .. } => Self::CallCoordinator,
             Step::SetStorage { .. } => Self::SetStorage,
+            Step::GetTokenStorage { .. } => Self::GetTokenStorage,
             Step::GetStorage { .. } => Self::GetStorage,
+            Step::Mint { .. } => Self::Mint,
+            Step::EnterMint { .. } => Self::EnterMint,
             Step::NewUtxo { .. } => Self::NewUtxo,
-            Step::ReceiveNewUtxoHandle { .. } => Self::ReceiveNewUtxoHandle,
+            Step::ReceiveNewResourceHandle { .. } => Self::ReceiveNewResourceHandle,
             Step::EnterConstructor { .. } => Self::EnterConstructor,
             Step::YieldBegin => Self::YieldBegin,
             Step::RegisterMethod { .. } => Self::RegisterMethod,
             Step::Return { .. } => Self::Return,
+            Step::Upcast { .. } => Self::Upcast,
+            Step::Attach { .. } => Self::Attach,
+            Step::EnterAttach { .. } => Self::EnterAttach,
             Step::CallMethod { .. } => Self::CallMethod,
             Step::ReceiveCallResult { .. } => Self::ReceiveCallResult,
             Step::EnterCall { .. } => Self::EnterCall,
@@ -114,19 +139,26 @@ impl EventKind {
             Self::RegisterMethod => 4,
             Self::Return => 5,
             Self::CallMethod => 6,
+            Self::Upcast => 23,
+            Self::Attach => 21,
+            Self::EnterAttach => 22,
             Self::EnterCall => 7,
             Self::SetStorage => 8,
             Self::GetStorage => 9,
+            Self::GetTokenStorage => 24,
+            Self::Mint => 25,
+            Self::EnterMint => 26,
             Self::RaiseEffect => 10,
             Self::EnterEffectHandler => 11,
             Self::ExitEffectHandler => 12,
             Self::ResumeEffect => 13,
-            Self::ReceiveNewUtxoHandle => 14,
+            Self::ReceiveNewResourceHandle => 14,
             Self::ReceiveCallResult => 15,
             Self::PushEffectHandlerFrame => 16,
             Self::AddEffectHandler => 17,
             Self::PopEffectHandlerFrame => 18,
             Self::CallCoordinator => 19,
+            Self::AssertSignedBy => 20,
         }
     }
 
@@ -146,16 +178,25 @@ impl EventKind {
         match self {
             Self::SetStorage => {
                 root(&mut words, &mut last_root_block, true);
+                words.extend([IsToken, TokenInterface]);
+            }
+            Self::GetTokenStorage => {
+                root(&mut words, &mut last_root_block, false);
+                words.push(TokenInterface);
             }
             Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveCallResult => {
                 root(&mut words, &mut last_root_block, false)
             }
-            Self::ReceiveNewUtxoHandle => words.push(Resource),
+            Self::AssertSignedBy => words.extend([Method(0), Method(1)]),
+            Self::ReceiveNewResourceHandle => words.push(Resource),
             Self::YieldBegin | Self::PopEffectHandlerFrame => {}
             Self::PushEffectHandlerFrame => words.push(FrameId),
             Self::RegisterMethod | Self::AddEffectHandler => {
                 words.extend((0..METHOD_WORDS).map(Method))
             }
+            Self::Upcast => words.extend([SourceHandle, Resource]),
+            Self::Attach => words.extend([Resource, Destination]),
+            Self::EnterAttach => words.extend([TokenInterface, Resource]),
             Self::CallMethod => {
                 words.push(Resource);
                 words.extend((0..METHOD_WORDS).map(Method));
@@ -164,6 +205,8 @@ impl EventKind {
             Self::EnterCall
             | Self::RaiseEffect
             | Self::CallCoordinator
+            | Self::Mint
+            | Self::EnterMint
             | Self::NewUtxo
             | Self::EnterConstructor => {
                 words.extend((0..METHOD_WORDS).map(Method));
@@ -179,19 +222,22 @@ impl EventKind {
                 root(&mut words, &mut last_root_block, false);
             }
         }
+        if self == Self::EnterMint {
+            words.push(TokenInterface);
+        }
         words.resize(words.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE, Constant(0));
         words.as_chunks::<BLOCK_SIZE>().0.to_vec()
     }
 
     /// Decode an event using this kind's layout. `expected_identity`, when supplied,
     /// is checked for method, effect, coordinator and constructor identity events.
-    /// `entry_utxo_handle` is required for `SetStorage` and ignored otherwise:
+    /// `entry_handle` is required for `SetStorage` and ignored otherwise:
     /// it is host metadata, absent from the committed blocks.
     pub fn decode(
         &self,
         blocks: &[[u64; BLOCK_SIZE]],
         expected_identity: Option<EventIdentity>,
-        entry_utxo_handle: Option<ResourceHandle>,
+        entry_handle: Option<ResourceHandle>,
     ) -> Result<Step, EventCodecError> {
         let layout = self.blocks();
         if blocks.len() != layout.len() {
@@ -200,6 +246,10 @@ impl EventKind {
                 actual: blocks.len(),
             });
         }
+        let mut is_token = false;
+        let mut interface = 0;
+        let mut source = 0;
+        let mut destination = 0;
         let mut resource = 0_u32;
         let mut frame_id = 0_u32;
         let mut method = [0_u32; METHOD_WORDS];
@@ -241,6 +291,33 @@ impl EventKind {
                             };
                         }
                     }
+                    Word::IsToken => {
+                        is_token = match value {
+                            0 => false,
+                            1 => true,
+                            _ => {
+                                return Err(EventCodecError::NamedArgumentOutOfRange {
+                                    block: block_index,
+                                    word: word_index,
+                                    name: "is_token",
+                                    value,
+                                });
+                            }
+                        }
+                    }
+                    Word::TokenInterface => {
+                        interface = named("token_interface")?;
+                        if *self == Self::SetStorage && !is_token && interface != 0 {
+                            return Err(EventCodecError::UnexpectedConstant {
+                                block: block_index,
+                                word: word_index,
+                                expected: 0,
+                                value,
+                            });
+                        }
+                    }
+                    Word::SourceHandle => source = named("source")?,
+                    Word::Destination => destination = named("destination")?,
                     Word::Resource => resource = named("resource")?,
                     Word::FrameId => frame_id = named("frame_id")?,
                     Word::Method(index) => method[index] = named("method")?,
@@ -272,6 +349,8 @@ impl EventKind {
                     | EventKind::RaiseEffect
                     | EventKind::EnterEffectHandler
                     | EventKind::CallCoordinator
+                    | EventKind::Mint
+                    | EventKind::EnterMint
                     | EventKind::NewUtxo
                     | EventKind::EnterConstructor
             )
@@ -290,23 +369,43 @@ impl EventKind {
             // The coordinator-local handle of a loaded input is host state
             // outside the transcript; the host binds it when it loads the
             // UTXO.
+            EventKind::AssertSignedBy => Step::AssertSignedBy {
+                key: u64::from(method.0[0]) | (u64::from(method.0[1]) << 32),
+            },
             EventKind::CallCoordinator => Step::CallCoordinator {
                 script: method,
                 arguments: argument,
             },
             EventKind::SetStorage => Step::SetStorage {
+                kind: if is_token {
+                    crate::StorageKind::Token { interface }
+                } else {
+                    crate::StorageKind::Utxo
+                },
                 storage: argument,
-                entry_utxo_handle: entry_utxo_handle
-                    .ok_or(EventCodecError::MissingEntryUtxoHandle)?,
+                entry_handle: entry_handle.ok_or(EventCodecError::MissingEntryHandle)?,
+            },
+            EventKind::GetTokenStorage => Step::GetTokenStorage {
+                interface,
+                storage: Out(result),
             },
             EventKind::GetStorage => Step::GetStorage {
                 storage: Out(result),
+            },
+            EventKind::Mint => Step::Mint {
+                constructor: method,
+                arguments: argument,
+            },
+            EventKind::EnterMint => Step::EnterMint {
+                constructor: method,
+                arguments: argument,
+                interface,
             },
             EventKind::NewUtxo => Step::NewUtxo {
                 constructor: method,
                 arguments: argument,
             },
-            EventKind::ReceiveNewUtxoHandle => Step::ReceiveNewUtxoHandle {
+            EventKind::ReceiveNewResourceHandle => Step::ReceiveNewResourceHandle {
                 resource: Out(ResourceHandle(resource)),
             },
             EventKind::EnterConstructor => Step::EnterConstructor {
@@ -320,6 +419,18 @@ impl EventKind {
             EventKind::PopEffectHandlerFrame => Step::PopEffectHandlerFrame,
             EventKind::Return => Step::Return {
                 result: Out(result),
+            },
+            EventKind::Upcast => Step::Upcast {
+                source: ResourceHandle(source),
+                result: Out(ResourceHandle(resource)),
+            },
+            EventKind::Attach => Step::Attach {
+                token: ResourceHandle(resource),
+                destination: ResourceHandle(destination),
+            },
+            EventKind::EnterAttach => Step::EnterAttach {
+                interface,
+                destination: ResourceHandle(resource),
             },
             EventKind::CallMethod => Step::CallMethod {
                 resource: ResourceHandle(resource),
@@ -364,10 +475,20 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         }
         _ => 0,
     };
+    let signer;
     let (resource, method, argument, result) = match step {
+        Step::AssertSignedBy { key } => {
+            signer = EventIdentity::from_u64_words([*key, 0, 0, 0]);
+            (0, Some(&signer), None, None)
+        }
+        Step::Upcast { result, .. } => (result.0.0, None, None, None),
+        Step::Attach { token, .. } => (token.0, None, None, None),
+        Step::EnterAttach { destination, .. } => (destination.0, None, None, None),
         Step::CallCoordinator { script, arguments } => (0, Some(script), Some(arguments), None),
         Step::SetStorage { storage, .. } => (0, None, Some(storage), None),
-        Step::GetStorage { storage } => (0, None, None, Some(&storage.0)),
+        Step::GetTokenStorage { storage, .. } | Step::GetStorage { storage } => {
+            (0, None, None, Some(&storage.0))
+        }
         Step::PreloadMethod { .. }
         | Step::BeginExecution { .. }
         | Step::ReadAbi { .. }
@@ -375,7 +496,16 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         | Step::SkipEffectHandler
         | Step::FinalizeCoordinator
         | Step::FinishTransaction => unreachable!(),
-        Step::NewUtxo {
+        Step::Mint {
+            constructor,
+            arguments,
+        }
+        | Step::EnterMint {
+            constructor,
+            arguments,
+            ..
+        }
+        | Step::NewUtxo {
             constructor,
             arguments,
         }
@@ -383,7 +513,7 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
             constructor,
             arguments,
         } => (0, Some(constructor), Some(arguments), None),
-        Step::ReceiveNewUtxoHandle { resource } => (resource.0.0, None, None, None),
+        Step::ReceiveNewResourceHandle { resource } => (resource.0.0, None, None, None),
         Step::YieldBegin => (0, None, None, None),
         Step::RegisterMethod { method } => (0, Some(method), None, None),
         Step::PushEffectHandlerFrame { .. } | Step::PopEffectHandlerFrame => (0, None, None, None),
@@ -408,6 +538,31 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         .map(|block| {
             block.map(|word| match word {
                 Word::Constant(x) => u64::from(x),
+                Word::IsToken => u64::from(matches!(
+                    step,
+                    Step::SetStorage {
+                        kind: crate::StorageKind::Token { .. },
+                        ..
+                    }
+                )),
+                Word::TokenInterface => match step {
+                    Step::EnterMint { interface, .. }
+                    | Step::GetTokenStorage { interface, .. }
+                    | Step::SetStorage {
+                        kind: crate::StorageKind::Token { interface },
+                        ..
+                    }
+                    | Step::EnterAttach { interface, .. } => u64::from(*interface),
+                    _ => 0,
+                },
+                Word::SourceHandle => match step {
+                    Step::Upcast { source, .. } => u64::from(source.0),
+                    _ => unreachable!(),
+                },
+                Word::Destination => match step {
+                    Step::Attach { destination, .. } => u64::from(destination.0),
+                    _ => unreachable!(),
+                },
                 Word::Resource => u64::from(resource),
                 Word::FrameId => u64::from(frame_id),
                 Word::Method(i) => u64::from(method.unwrap().0[i]),
@@ -425,8 +580,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
 /// Failure to decode or dispatch an absorbed block assignment.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum EventCodecError {
-    #[error("SetStorage requires a host-supplied entry UTXO handle")]
-    MissingEntryUtxoHandle,
+    #[error("SetStorage requires a host-supplied entry resource handle")]
+    MissingEntryHandle,
     #[error("expected {expected} blocks from the static template, found {actual}")]
     WrongBlockCount { expected: usize, actual: usize },
 
@@ -477,15 +632,25 @@ mod test {
     fn program_steps() -> Vec<Step> {
         vec![
             Step::SetStorage {
+                kind: crate::StorageKind::Utxo,
                 storage: ROOT,
-                entry_utxo_handle: ResourceHandle(7),
+                entry_handle: ResourceHandle(7),
+            },
+            Step::SetStorage {
+                kind: crate::StorageKind::Token { interface: 3 },
+                storage: OTHER,
+                entry_handle: ResourceHandle(8),
             },
             Step::GetStorage { storage: Out(ROOT) },
+            Step::GetTokenStorage {
+                interface: 3,
+                storage: Out(ROOT),
+            },
             Step::NewUtxo {
                 constructor: METHOD,
                 arguments: ROOT,
             },
-            Step::ReceiveNewUtxoHandle {
+            Step::ReceiveNewResourceHandle {
                 resource: Out(ResourceHandle(7)),
             },
             Step::EnterConstructor {
@@ -494,6 +659,18 @@ mod test {
             },
             Step::YieldBegin,
             Step::RegisterMethod { method: METHOD },
+            Step::Upcast {
+                source: ResourceHandle(7),
+                result: Out(ResourceHandle(8)),
+            },
+            Step::Attach {
+                token: ResourceHandle(10),
+                destination: ResourceHandle(8),
+            },
+            Step::EnterAttach {
+                interface: 3,
+                destination: ResourceHandle(19),
+            },
             Step::Return { result: Out(ROOT) },
             Step::CallMethod {
                 resource: ResourceHandle(7),
@@ -551,14 +728,12 @@ mod test {
             let encoded = encode(&step);
             assert_eq!(encoded.len(), kind.blocks().len(), "{step:?}");
             assert_eq!(encoded[0][0], kind.tag() as u64, "{step:?}");
-            let entry_utxo_handle = match &step {
-                Step::SetStorage {
-                    entry_utxo_handle, ..
-                } => Some(*entry_utxo_handle),
+            let entry_handle = match &step {
+                Step::SetStorage { entry_handle, .. } => Some(*entry_handle),
                 _ => None,
             };
             assert_eq!(
-                kind.decode(&encoded, expected_identity, entry_utxo_handle)
+                kind.decode(&encoded, expected_identity, entry_handle)
                     .unwrap(),
                 step
             );
@@ -568,18 +743,20 @@ mod test {
     #[test]
     fn storage_handle_is_host_metadata_not_committed_data() {
         let first = Step::SetStorage {
+            kind: crate::StorageKind::Utxo,
             storage: ROOT,
-            entry_utxo_handle: ResourceHandle(7),
+            entry_handle: ResourceHandle(7),
         };
         let second = Step::SetStorage {
+            kind: crate::StorageKind::Utxo,
             storage: ROOT,
-            entry_utxo_handle: ResourceHandle(9),
+            entry_handle: ResourceHandle(9),
         };
         let blocks = encode(&first);
         assert_eq!(blocks, encode(&second));
         assert_eq!(
             EventKind::SetStorage.decode(&blocks, None, None),
-            Err(EventCodecError::MissingEntryUtxoHandle)
+            Err(EventCodecError::MissingEntryHandle)
         );
         assert_eq!(
             EventKind::SetStorage
@@ -671,7 +848,7 @@ mod test {
 
     #[test]
     fn rejects_named_words_that_do_not_fit_the_wasm_encoding() {
-        let step = Step::ReceiveNewUtxoHandle {
+        let step = Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(7)),
         };
         let mut encoded = encode(&step);

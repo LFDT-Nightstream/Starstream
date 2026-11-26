@@ -40,10 +40,10 @@ pub(crate) fn check_execution_end(sp: F, curr: F) -> Result<(), Unsatisfied> {
     if sp != F::ZERO {
         return Err(Unsatisfied::TerminalCallStackNotEmpty { actual: sp });
     }
-    if !u32::try_from(curr.as_canonical_u64())
+    let coroutine = u32::try_from(curr.as_canonical_u64())
         .ok()
-        .is_some_and(|packed| matches!(CoroutineId::from_packed(packed), CoroutineId::Coord(_)))
-    {
+        .and_then(CoroutineId::from_packed);
+    if !matches!(coroutine, Some(CoroutineId::Coord(_))) {
         return Err(Unsatisfied::TerminalCoroutineNotCoordinator { actual: curr });
     }
     Ok(())

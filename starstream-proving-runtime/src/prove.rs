@@ -588,6 +588,27 @@ impl TransactionProver {
             expected.input_count() == statement.inputs.len(),
             "missing verification program for a transaction input"
         );
+        let token_count = statement.output_tokens.len();
+        ensure!(
+            expected.token_count() == token_count,
+            "token program bindings must cover every output token"
+        );
+        ensure!(
+            expected.input_token_count() == statement.input_tokens.len(),
+            "token program bindings must cover exactly the transaction input tokens"
+        );
+        ensure!(
+            proof
+                .instances
+                .iter()
+                .filter(|instance| matches!(
+                    CoroutineId::from_packed(instance.coroutine),
+                    Some(CoroutineId::Token(_))
+                ))
+                .count()
+                == token_count,
+            "missing or unexpected token instance"
+        );
         for (index, instance) in proof.instances.iter().enumerate() {
             let (program, initial) = expected.instance(
                 instance.coroutine,
@@ -637,7 +658,8 @@ fn coroutine_ids(execution: &CapturedExecution) -> wasmtime::Result<Vec<Coroutin
     let utxos = (0..).map(CoroutineId::Utxo).zip(&transaction.utxos);
     // Coord(0) is the transaction context, so the entry script is Coord(1).
     let coordinators = (1..).map(CoroutineId::Coord).zip(&transaction.coordinators);
-    for (id, process) in utxos.chain(coordinators) {
+    let tokens = (0..).map(CoroutineId::Token).zip(&transaction.tokens);
+    for (id, process) in utxos.chain(tokens).chain(coordinators) {
         let slot = ids
             .get_mut(process.0)
             .context("the interleaving names a trace that was not captured")?;

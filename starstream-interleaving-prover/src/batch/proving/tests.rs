@@ -76,12 +76,23 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
 #[test]
 #[ignore = "expensive Nebula proving; run explicitly with --release --ignored"]
 fn transaction_proof_round_trip() -> Result<(), ProvingError> {
-    let (trace, statement, roots) = transaction_fixture();
+    use crate::ivc_state::CoroutineId::{Coord, Utxo};
+    use starstream_interleaving_spec::Step;
+    let (mut trace, mut statement) = crate::transaction::tests::fixture();
+    trace.0.insert(4, Step::AssertSignedBy { key: 17 });
+    statement.signers.extend([0, 17]);
+    let roots = crate::commitment::tests::expected(
+        &Trace::new(trace.0[..7].to_vec()),
+        &[Utxo(0), Coord(1), Coord(1), Coord(1), Utxo(0)],
+    );
     let context =
         InterleavingProofContext::new(ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?)?;
     let methods = method_dictionary(&trace);
     let mut proof = context.prove(&trace, &statement, &roots)?;
     context.verify(&methods, &proof, &statement, &roots)?;
+    let mut changed = statement.clone();
+    changed.signers.remove(&17);
+    assert!(context.verify(&methods, &proof, &changed, &roots).is_err());
     let mut other_methods = methods.clone();
     other_methods.push(MethodHash([u32::MAX; 8]));
     assert!(
@@ -190,12 +201,13 @@ fn final_claim_requires_termination_and_correct_width() {
 fn dictionary_must_be_unique_and_canonical() {
     let config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 1).unwrap();
     let app = application(&Batch::new(1).unwrap(), &config).unwrap();
+    let statement = crate::tests::empty_statement();
     let method = MethodHash([1; 8]);
     assert!(matches!(
-        program(&app, &[method, method]),
+        program(&app, &[method, method], &statement),
         Err(ProvingError::MethodDictionary)
     ));
-    assert!(program(&app, &[method]).is_ok());
+    assert!(program(&app, &[method], &statement).is_ok());
 }
 
 fn carried_index(column: usize) -> usize {
@@ -208,11 +220,11 @@ fn carried_index(column: usize) -> usize {
 
 #[test]
 fn nebula_native_run_preserves_state_and_binds_method_rom() {
-    let (trace, _, _) = transaction_fixture();
+    let (trace, statement, _) = transaction_fixture();
     let normalized = normalize(&trace);
     for config in [
         ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3).unwrap(),
-        ProofConfig::for_trace_benchmark(&trace, 3, 8).unwrap(),
+        ProofConfig::for_trace_benchmark(&trace, &statement, 3, 8).unwrap(),
     ] {
         let batch = Batch::new(config.batch_size).unwrap();
         let mut packed = batch.pack(&normalized.steps);
@@ -340,8 +352,22 @@ fn planned_slots_bind_and_run_like_one_slot_per_port() {
 /// The limits profile must hold every address the fixture uses.
 #[test]
 fn initial_limits_cover_the_fixture() -> Result<(), ProvingError> {
-    let (trace, _, _) = transaction_fixture();
-    let used = ProofConfig::for_trace_benchmark(&trace, 3, 8)?;
+    let (trace, mut statement, _) = transaction_fixture();
+    // Benchmark sizing must cover the entire preload, even keys the trace never reads.
+    statement.signers.extend([11, 17, 23]);
+    let token = starstream_interleaving_spec::InputToken {
+        owner: 0,
+        storage: starstream_interleaving_spec::StarstreamValue::UNIT_VALUE,
+    };
+    statement.input_tokens = vec![token; 3];
+    let used = ProofConfig::for_trace_benchmark(&trace, &statement, 3, 8)?;
+    let batch = Batch::new(used.batch_size)?;
+    let app = application(&batch, &used)?;
+    let methods = method_dictionary(&trace);
+    statement.inputs.push(statement.inputs[0].clone());
+    let original = program(&app, &methods, &statement)?.d_init();
+    statement.input_tokens[2].owner = 1;
+    assert_ne!(original, program(&app, &methods, &statement)?.d_init());
     let limits = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?;
     for (id, region) in &used.regions {
         let (_, limit) = limits
@@ -395,6 +421,8 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
             effect_scopes,
             methods,
             registrations,
+            tokens: Limits::SMALL_DEFAULTS.tokens,
+            signers: Limits::SMALL_DEFAULTS.signers,
         },
         _ => Limits::SMALL_DEFAULTS,
     };
@@ -472,7 +500,7 @@ fn relation_census() {
         rest.iter().map(|(_, rows)| rows).sum::<usize>(),
         rest.len()
     );
-    let (trace, _, _) = transaction_fixture();
+    let (trace, statement, _) = transaction_fixture();
     for (name, config) in [
         (
             "initial limits",
@@ -480,7 +508,7 @@ fn relation_census() {
         ),
         (
             "trace-sized",
-            ProofConfig::for_trace_benchmark(&trace, 16, 8).unwrap(),
+            ProofConfig::for_trace_benchmark(&trace, &statement, 16, 8).unwrap(),
         ),
     ] {
         println!("{name}: {:?}", config.geometry);

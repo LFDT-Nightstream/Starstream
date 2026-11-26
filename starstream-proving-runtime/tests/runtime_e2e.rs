@@ -60,6 +60,282 @@ const UNHANDLED_EFFECT: &str = r#"
     }
 "#;
 
+const MINT_PAYMENT: &str = concat!(
+    include_str!("../../examples/pay_to_public_key.star"),
+    r#"
+    token PaymentToken {
+        storage { let mut amount: u64; }
+        mint fn issue(pub value: u64) { amount = value; }
+        impl Token {
+            fn attach(to: Utxo) {}
+            fn detach(source: Utxo) {}
+        }
+    }
+    script fn mint_payment() {
+        let payment: Token = PaymentToken::issue(42);
+        send_single_token(PublicKey { dummy: 17 }, payment);
+    }
+"#
+);
+
+fn minted_payment_verification(
+    wasm: &[u8],
+    sizes: impl IntoIterator<Item = starstream_proving_runtime::WasmSize>,
+) -> wasmtime::Result<starstream_proving_runtime::PreparedVerification> {
+    use starstream_proving_runtime::{VerificationProgram, prepare_verification};
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(wasm).into();
+    let program = VerificationProgram {
+        wasm,
+        contract_digest: &digest,
+        coordination_exports: &["mint-payment", "send-single-token"],
+        is_original_image: true,
+        input_tokens: &[],
+        input_utxos: &[],
+        new_tokens: &[(0, "payment-token".into())],
+        new_utxos: &[(0, "pay-to-public-key".into())],
+    };
+    prepare_verification(&[program], sizes)
+}
+
+#[tokio::test]
+async fn mint_and_attach_to_pay_to_public_key() -> wasmtime::Result<()> {
+    let execution = trace_coordination_script(MINT_PAYMENT, "mint-payment").await?;
+    minted_payment_verification(
+        &execution.wasm,
+        [starstream_proving_runtime::WasmSize::Medium],
+    )?;
+    let tx = &execution.transaction;
+    let statement = &tx.statement;
+    assert!(statement.input_tokens.is_empty() && statement.inputs.is_empty());
+    let [token] = statement.output_tokens.as_slice() else {
+        panic!("expected one minted token")
+    };
+    let [utxo] = statement.outputs.as_slice() else {
+        panic!("expected one payment output")
+    };
+    assert_eq!((token.token, token.owner, utxo.utxo), (0, 0, 0));
+    assert_eq!(token.storage, u64_root(42));
+    assert!(
+        execution.storage[0].contains(&("recipient".to_owned(), wasmtime::component::Val::S64(17)))
+    );
+    verify_transaction_sat(&tx.trace, BATCH_SIZE, statement, &execution.commitments)?;
+
+    let mut missing = statement.clone();
+    missing.output_tokens.clear();
+    assert!(
+        verify_transaction_sat(&tx.trace, BATCH_SIZE, &missing, &execution.commitments).is_err()
+    );
+
+    let mut wrong = tx.execution.clone();
+    let Some(Step::EnterMint { constructor, .. }) = wrong
+        .0
+        .iter_mut()
+        .find(|s| matches!(s, Step::EnterMint { .. }))
+    else {
+        panic!("missing mint entry")
+    };
+    constructor.0[0] ^= 1;
+    assert!(verify_sat(&wrong, &statement.signers).is_err());
+    Ok(())
+}
+
+/// Start at script entry with a detached token restored in its own component.
+#[tokio::test]
+async fn send_single_token_from_storage() -> wasmtime::Result<()> {
+    use starstream_proving_runtime::{
+        WasmTraceSink, build_component_templates, decode_captured_instance, enable_tracing,
+        register_tracing_component,
+    };
+    use starstream_runtime::{Contract, Host};
+    use wasmtime::component::{Component, Val};
+    use wasmtime::error::Context as _;
+
+    let mut config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut config);
+    let engine = wasmtime::Engine::new(&config)?;
+    let mut store = wasmtime::Store::new(&engine, common::Ctx::default());
+    let mut contract = |source| -> wasmtime::Result<Contract<common::Ctx>> {
+        let wasm = common::compile_component(source)?;
+        let contract = Contract::new(
+            &Component::from_binary(&engine, &wasm)?,
+            None,
+            common::NoopContractLookup,
+        )?;
+        let names = contract.coordination_script_names().collect::<Vec<_>>();
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(&wasm).into();
+        let templates = build_component_templates(&wasm, &names, &digest)?;
+        register_tracing_component(store.data_mut(), &wasm, &templates.bindings)?;
+        Ok(contract)
+    };
+    let payment = contract(include_str!("../../examples/pay_to_public_key.star"))?;
+    let token_contract = contract(include_str!(
+        "../../starstream-to-wasm/tests/inputs/token_attach.star"
+    ))?;
+    enable_tracing(&mut store)?;
+    let coordinator = payment.instantiate(&mut store).await?;
+    let token_instance = token_contract.instantiate(&mut store).await?;
+    let export = token_contract.get_token("my-token")?;
+    let token = token_instance
+        .load_token(
+            &mut store,
+            &export,
+            export.storage(),
+            [(String::from("attached"), Val::S64(0))],
+        )
+        .await?;
+    let token_id = store
+        .data()
+        .wasm_trace_registry()
+        .instances()?
+        .next()
+        .context("missing token load")?
+        .0;
+    let handle = store.data_mut().table().push(token.clone())?;
+    let handle = handle.try_into_resource_any(&mut store)?;
+    let recipient = Val::Record(vec![(String::from("dummy"), Val::U64(17))]);
+    coordinator
+        .call_coordination_script(
+            &mut store,
+            &payment.get_coordination_script("send-single-token")?,
+            [recipient, Val::Resource(handle)],
+            [],
+        )
+        .await?;
+    let registry = store.data().wasm_trace_registry();
+    let (_, coordinator_trace) = registry
+        .instances()?
+        .next()
+        .context("missing coordinator")?;
+    let coordinator_steps = decode_captured_instance(coordinator_trace, &mut std::iter::empty())?;
+    let Some(Step::EnterCall { arguments, .. }) = coordinator_steps.0.first() else {
+        panic!("missing payment entry")
+    };
+    // The by-value entry arguments are the recipient's two limbs followed by
+    // the token handle in this coordination instance's canonical ABI table.
+    let [17, 0, token_handle, 0] = arguments.0 else {
+        panic!("unexpected payment entry arguments: {arguments:?}")
+    };
+    let handle = ResourceHandle(u32::try_from(token_handle)?);
+    let constructed = constructed_resource(&coordinator_steps);
+    let destination = coordinator_steps
+        .0
+        .iter()
+        .find_map(|step| match step {
+            Step::Upcast { source, result } if *source == constructed => Some(result.0),
+            _ => None,
+        })
+        .context("payment UTXO upcast")?;
+    assert!(coordinator_steps.0.contains(&Step::Attach {
+        token: handle,
+        destination
+    }));
+
+    // Cross-check the interleaving against the actual three Wasm event chains,
+    // before the separate storage getter appends its finalization event.
+    use starstream_interleaving_prover::{CoroutineId, verify_sat_with_commitments};
+    let mut traces = Vec::new();
+    let mut roots = TraceCommitments::new();
+    let mut entry_handles = [handle].into_iter();
+    for (_, captured) in registry.instances()? {
+        let wasm = neo_wasm::traces_from_wasmtime_steps_with_host_events(
+            captured.steps(),
+            captured.artifacts(),
+            Default::default(),
+        )
+        .map_err(|e| wasmtime::format_err!("normalize payment trace: {e}"))?;
+        let blocks = neo_wasm::comm_chain::absorbed_event_blocks(&wasm)
+            .into_iter()
+            .map(|block| block.words)
+            .collect::<Vec<_>>();
+        let trace = starstream_proving_runtime::decode_tagged_blocks(&blocks, &mut entry_handles)?;
+        let owner = match trace.0.first() {
+            Some(Step::EnterCall { .. }) => CoroutineId::Coord(1),
+            Some(Step::SetStorage { .. }) => CoroutineId::Token(0),
+            Some(Step::EnterConstructor { .. }) => CoroutineId::Utxo(0),
+            step => panic!("unexpected payment guest entry {step:?}"),
+        };
+        assert!(
+            roots
+                .insert(owner.encoded(), wasm.last().unwrap().state_after.comm_chain)
+                .is_none()
+        );
+        traces.push(trace);
+    }
+    let execution = starstream_interleaving_spec::interleaver::interleave_execution_only(&traces)?;
+    verify_sat_with_commitments(&execution, BATCH_SIZE, &roots, &Default::default())?;
+    let storage = token.storage(export.storage()).call_get(&mut store).await?;
+    assert_eq!(storage, [("attached".to_owned(), Val::S64(1))]);
+    let registry = store.data().wasm_trace_registry();
+    let token_steps =
+        decode_captured_instance(registry.instance(token_id)?, &mut [handle].into_iter())?;
+    assert!(matches!(token_steps.0.first(), Some(Step::SetStorage {
+        kind: starstream_proving_runtime::StorageKind::Token { .. },
+        storage,
+        ..
+    }) if *storage == flat_value_root(&[ValType::I64], &[0])));
+    assert_eq!(
+        token_steps.0.last(),
+        Some(&Step::GetTokenStorage {
+            interface: 0,
+            storage: Out(flat_value_root(&[ValType::I64], &[1])),
+        })
+    );
+    let [output] = store.data().created.as_slice() else {
+        panic!("expected one PayToPublicKey output")
+    };
+    let output = output.clone();
+    let pay_to = payment.get_utxo("pay-to-public-key")?;
+    let storage = output
+        .storage(pay_to.storage().context("missing payment storage")?)
+        .call_get(&mut store)
+        .await?;
+    assert!(storage.contains(&("recipient".to_owned(), Val::S64(17))));
+    Ok(())
+}
+
+#[test]
+fn verification_preparation_rejects_wrong_setter_kind() -> wasmtime::Result<()> {
+    use starstream_proving_runtime::{VerificationProgram, WasmSize, prepare_verification};
+
+    let wasm = common::compile_component(
+        r#"
+        token MyToken {
+            storage { let mut count: u32; }
+            mint fn new() { count = 0; }
+            impl Token {
+                fn attach(to: Utxo) { count = count + 1; }
+                fn detach(source: Utxo) { count = count - 1; }
+            }
+        }
+        utxo Holder {
+            main fn new() { yield(); }
+        }
+    "#,
+    )?;
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&wasm).into();
+    let prepare = |utxo: &str, token: &str| {
+        prepare_verification(
+            &[VerificationProgram {
+                wasm: &wasm,
+                contract_digest: &digest,
+                coordination_exports: &[],
+                is_original_image: true,
+                input_utxos: &[(0, utxo.to_owned())],
+                input_tokens: &[(0, token.to_owned())],
+                new_utxos: &[],
+                new_tokens: &[],
+            }],
+            [WasmSize::Large],
+        )
+    };
+    prepare("holder", "my-token")?;
+    for (utxo, token) in [("holder", "holder"), ("my-token", "my-token")] {
+        let error = prepare(utxo, token).err().expect("wrong setter kind");
+        assert!(error.to_string().contains("wrong resource kind"), "{error}");
+    }
+    Ok(())
+}
+
 /// Identity of the `new` constructor of `utxo`, as the contract that ran exports it.
 fn constructor(execution: &TracedExecution, utxo: &str) -> MethodHash {
     let digest = <sha2::Sha256 as sha2::Digest>::digest(&execution.wasm).into();
@@ -153,7 +429,7 @@ fn constructed_resource(coordinator: &Trace) -> ResourceHandle {
         .0
         .iter()
         .find_map(|step| match step {
-            Step::ReceiveNewUtxoHandle { resource } => Some(resource.0),
+            Step::ReceiveNewResourceHandle { resource } => Some(resource.0),
             _ => None,
         })
         .unwrap_or_else(|| panic!("coordinator trace has no received UTXO handle: {coordinator:?}"))
@@ -176,7 +452,7 @@ fn expected_minimal_method_call_traces(
             constructor,
             arguments: u64_root(55),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(resource),
         },
         call(resource, "accept", 13),
@@ -205,7 +481,7 @@ fn expected_score_traces(execution: &TracedExecution, resource: ResourceHandle) 
             constructor,
             arguments: UNIT,
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(resource),
         },
     ];
@@ -270,6 +546,9 @@ fn check_transaction(
     assert_eq!(
         transaction.statement,
         TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: entry_call(execution),
             inputs: vec![],
             outputs: vec![OutputUtxo {
@@ -279,7 +558,7 @@ fn check_transaction(
             }],
         }
     );
-    verify_sat(&transaction.execution)
+    verify_sat(&transaction.execution, &Default::default())
         .map_err(|error| wasmtime::format_err!("circuit rejected the execution: {error}"))?;
     verify_transaction_sat(
         &transaction.trace,
@@ -376,7 +655,7 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
         execution.transaction.execution,
         Trace::with_entry(&entry, body)
     );
-    verify_sat(&execution.transaction.execution)
+    verify_sat(&execution.transaction.execution, &Default::default())
         .map_err(|error| wasmtime::format_err!("circuit rejected effect re-entry: {error}"))?;
     Ok(())
 }
@@ -397,15 +676,18 @@ async fn effect_raised_after_its_scope_is_popped_is_unhandled() {
 async fn traced_transactions_satisfy_the_quint_specification() -> wasmtime::Result<()> {
     let verifier = QuintVerifier::new()
         .map_err(|error| wasmtime::format_err!("Quint is unavailable: {error}"))?;
-    for (name, source) in [
-        ("minimal method call", MINIMAL_METHOD_CALL),
-        ("score", SCORE),
-        ("multiple UTXOs", common::MULTI_UTXO),
-        ("distinct UTXO types", common::DISTINCT_UTXO_TYPES),
+    for (name, source, script) in [
+        ("minted payment", MINT_PAYMENT, "mint-payment"),
+        ("minimal method call", MINIMAL_METHOD_CALL, "example"),
+        ("score", SCORE, "example"),
+        ("multiple UTXOs", common::MULTI_UTXO, "example"),
+        (
+            "distinct UTXO types",
+            common::DISTINCT_UTXO_TYPES,
+            "example",
+        ),
     ] {
-        let transaction = trace_coordination_script(source, "example")
-            .await?
-            .transaction;
+        let transaction = trace_coordination_script(source, script).await?.transaction;
         verifier.verify(&transaction.execution).map_err(|error| {
             wasmtime::format_err!("Quint rejected the {name} execution: {error}")
         })?;
@@ -428,7 +710,7 @@ async fn traced_transactions_satisfy_the_quint_specification() -> wasmtime::Resu
             );
             // The circuit checks membership at the call, before entering the callee.
             assert!(matches!(
-                verify_sat(&invalid),
+                verify_sat(&invalid, &Default::default()),
                 Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
             ));
             assert!(matches!(invalid.0[call_index], Step::CallMethod { .. }));
@@ -446,7 +728,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
         .0
         .iter()
         .filter_map(|step| match step {
-            Step::ReceiveNewUtxoHandle { resource } => Some(resource.0),
+            Step::ReceiveNewResourceHandle { resource } => Some(resource.0),
             _ => None,
         })
         .collect();
@@ -466,7 +748,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
             register("increment"),
             register("finish"),
             ret(),
-            Step::ReceiveNewUtxoHandle {
+            Step::ReceiveNewResourceHandle {
                 resource: Out(*handle),
             },
         ]);
@@ -517,6 +799,9 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
     assert_eq!(
         transaction.statement,
         TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: entry_call(&execution),
             inputs: vec![],
             outputs: vec![
@@ -649,7 +934,7 @@ async fn distinct_utxo_types_route_shared_methods_and_reject_foreign_methods()
     let (invalid, _) = call_other_types_method(&transaction.execution);
     // No stale statement/root check: this must fail the actual memory checks.
     assert!(matches!(
-        verify_sat(&invalid),
+        verify_sat(&invalid, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
     ));
     Ok(())
@@ -658,6 +943,20 @@ async fn distinct_utxo_types_route_shared_methods_and_reject_foreign_methods()
 #[cfg(feature = "proof-tests")]
 mod proving {
     use super::*;
+
+    #[tokio::test]
+    #[ignore = "Nebula proofs; run with --release --features proof-tests -- --ignored"]
+    async fn minted_payment_proof_round_trip() -> wasmtime::Result<()> {
+        use starstream_proving_runtime::{Engine, TransactionProver, decode_captured_execution};
+        let (traced, registry) =
+            common::trace_coordination_script_with_registry(MINT_PAYMENT, "mint-payment").await?;
+        let execution = decode_captured_execution(&registry, [])?;
+        let mut prover = TransactionProver::new(Engine::Optimized);
+        let (proof, _) = prover.prove(&registry, &execution)?;
+        let verification =
+            minted_payment_verification(&traced.wasm, proof.instances.iter().map(|p| p.size))?;
+        prover.verify(&proof, &verification, &execution.transaction.statement)
+    }
 
     #[tokio::test]
     #[ignore = "Nebula proofs; run with --release --features proof-tests -- --ignored"]
@@ -682,7 +981,8 @@ mod proving {
             panic!("expected one surviving UTXO");
         };
         assert_eq!(output.utxo, 1);
-        let ids = [0, 1, 2].map(common::coroutine_id);
+        use starstream_interleaving_prover::CoroutineId::{Coord, Utxo};
+        let ids = [Coord(1), Utxo(0), Utxo(1)].map(|id| id.encoded());
         assert_ne!(traced.commitments[&ids[1]], traced.commitments[&ids[2]]);
         let wasm = traced.wasm;
         let mut prover = TransactionProver::new(Engine::Optimized);
@@ -747,7 +1047,12 @@ mod proving {
             .transpose()?
             .unwrap_or(8);
         let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
-            ProofConfig::for_trace_benchmark(&transaction.trace, batch_size, segment_batches)?
+            ProofConfig::for_trace_benchmark(
+                &transaction.trace,
+                &transaction.statement,
+                batch_size,
+                segment_batches,
+            )?
         } else {
             ProofConfig::for_limits(Limits::SMALL_DEFAULTS, batch_size)?
                 .with_segment_batches(segment_batches)?
@@ -793,7 +1098,9 @@ mod proving {
             "a proof must not verify against another statement"
         );
         let mut other_commitments = execution.commitments.clone();
-        other_commitments.get_mut(&2).expect("Coord(1)")[1] ^= 1;
+        other_commitments
+            .get_mut(&starstream_interleaving_prover::CoroutineId::Coord(1).encoded())
+            .expect("Coord(1)")[1] ^= 1;
         assert!(
             context
                 .verify(&methods, &proof, &transaction.statement, &other_commitments)

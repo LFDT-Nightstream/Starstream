@@ -5,12 +5,14 @@
 // Each integration test binary uses a different subset of this module.
 #![allow(dead_code)]
 
+mod compile;
+pub use compile::{compile_component, compile_contract};
+
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use neo_math::F;
 use neo_wasm::comm_chain::{CommChainState, fold_event_blocks};
-use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_interleaving_prover::{CoroutineId, TraceCommitments};
 use starstream_interleaving_spec::interleaver::{InterleavedTransaction, interleave_transaction};
 use starstream_interleaving_spec::{Trace, events};
@@ -21,8 +23,8 @@ use starstream_proving_runtime::{
 use starstream_runtime::{
     Contract, ContractLookup, Host, StarstreamCtx, StorageExport, Token, Utxo, UtxoExport, bindings,
 };
-use starstream_to_wasm::compile;
 use wasmtime::component::{Component, Resource, ResourceTable, Val, types};
+use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail};
 
 pub const MINIMAL_METHOD_CALL: &str = r#"
@@ -151,21 +153,6 @@ pub const MULTI_UTXO: &str = r#"
     }
 "#;
 
-pub fn compile_contract(source: &str) -> Vec<u8> {
-    let (program, errors) = parse_program(source).into_output_errors();
-    assert!(errors.is_empty(), "parsing failed: {errors:?}");
-    let program = program.expect("parser produced no program");
-    let typed = typecheck_program(&program, TypecheckOptions::default())
-        .unwrap_or_else(|failure| panic!("typechecking failed: {:?}", failure.errors));
-    let result = compile(&typed.program);
-    assert!(
-        result.errors.is_empty(),
-        "compiling failed: {:?}",
-        result.errors
-    );
-    result.wasm.expect("compiling produced no Wasm")
-}
-
 pub struct NoopContractLookup;
 
 impl<T> ContractLookup<T> for NoopContractLookup {
@@ -185,7 +172,8 @@ pub struct Ctx {
     starstream: StarstreamCtx,
     traces: neo_wasm::WasmtimeTraceRegistry,
     /// Every UTXO constructed during the script, in allocation order.
-    created: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
+    minted: Vec<Token>,
+    pub(crate) created: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
 }
 
 impl bindings::starstream::std::cardano::Host for Ctx {
@@ -281,6 +269,10 @@ impl Host for Ctx {
         Ok(())
     }
 
+    fn token_minted(&mut self, token: &Token) {
+        self.minted.push(token.clone());
+    }
+
     fn drop_token(
         mut store: StoreContextMut<Self>,
         token: Resource<Token>,
@@ -351,23 +343,30 @@ pub fn prepare_contract_verification(
             wasm,
             coordination_exports: &[script],
             is_original_image: true,
+            input_tokens: &[],
             input_utxos: &[],
             new_utxos: &[],
+            new_tokens: &[],
             contract_digest: &digest,
         }],
         proof.instances.iter().map(|instance| instance.size),
     )
 }
 
-/// The interleaving prover's packed coroutine id of core instance `index`:
-/// instance 0 is the coordination script `Coord(1)`, later instances are
-/// `Utxo(0)`, `Utxo(1)`, ... in allocation order.
-pub fn coroutine_id(index: usize) -> u32 {
-    let id = match index.checked_sub(1) {
-        None => CoroutineId::Coord(1),
-        Some(utxo) => CoroutineId::Utxo(u32::try_from(utxo).expect("few UTXOs")),
-    };
-    id.encoded()
+fn coroutine_id(transaction: &InterleavedTransaction, index: usize) -> u32 {
+    if let Some(i) = transaction.utxos.iter().position(|p| p.0 == index) {
+        CoroutineId::Utxo(i as u32)
+    } else if let Some(i) = transaction.tokens.iter().position(|p| p.0 == index) {
+        CoroutineId::Token(i as u32)
+    } else {
+        let i = transaction
+            .coordinators
+            .iter()
+            .position(|p| p.0 == index)
+            .expect("assigned process");
+        CoroutineId::Coord(1 + i as u32)
+    }
+    .encoded()
 }
 
 pub fn encoded_chain(steps: &Trace) -> [u64; 4] {
@@ -423,20 +422,16 @@ pub async fn trace_coordination_script_with_registry(
     source: &str,
     script: &str,
 ) -> wasmtime::Result<(TracedExecution, neo_wasm::WasmtimeTraceRegistry)> {
-    let wasm = wit_component::ComponentEncoder::default()
-        .validate(true)
-        .module(&compile_contract(source))
-        .map_err(|error| wasmtime::format_err!("failed to set core module: {error:#}"))?
-        .encode()
-        .map_err(|error| wasmtime::format_err!("failed to componentize contract: {error:#}"))?;
+    let wasm = compile_component(source)?;
     let digest = <sha2::Sha256 as sha2::Digest>::digest(&wasm).into();
-    let templates = build_component_templates(&wasm, &[script], &digest)
-        .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
     let mut engine_config = wasmtime::Config::default();
     starstream_runtime::configure_wasmtime(&mut engine_config);
     let engine = Engine::new(&engine_config)?;
     let component = Component::from_binary(&engine, &wasm)?;
     let contract = Contract::new(&component, None, NoopContractLookup)?;
+    let scripts = contract.coordination_script_names().collect::<Vec<_>>();
+    let templates = build_component_templates(&wasm, &scripts, &digest)
+        .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
     let artifacts = Arc::new(
         neo_wasm::extract_first_component_core_program_artifacts(&wasm).map_err(|error| {
             wasmtime::format_err!("failed to extract program artifacts: {error}")
@@ -466,6 +461,25 @@ pub async fn trace_coordination_script_with_registry(
         }
         let storage = storage_export_for(&contract, utxo, store.as_context_mut())?;
         storage_records.push(utxo.storage(&storage).call_get(&mut store).await?);
+    }
+
+    for token in store.data().minted.clone() {
+        let mut matched = None;
+        for (name, export) in contract.tokens() {
+            let instance = token.instance();
+            let (_, interface) = instance
+                .get_export(&mut store, None, name)
+                .context("missing token interface")?;
+            let (_, resource) = instance
+                .get_export(&mut store, Some(&interface), "token")
+                .context("missing token resource")?;
+            if instance.get_resource(&mut store, resource) == Some(token.resource().ty()) {
+                matched = Some(export?);
+                break;
+            }
+        }
+        let export = matched.context("cannot find minted token storage")?;
+        token.storage(export.storage()).call_get(&mut store).await?;
     }
 
     let ctx = store.into_data();
@@ -520,7 +534,7 @@ pub async fn trace_coordination_script_with_registry(
                  decoded steps' specification encoding {expected:?}"
             );
         }
-        commitments.insert(coroutine_id(index), chain);
+        commitments.insert(coroutine_id(&transaction, index), chain);
     }
 
     Ok((
@@ -546,6 +560,9 @@ pub fn storage_counter_statement(
     use starstream_proving_runtime::{flat_value_root, method_hash_from_name};
     use wasmparser::ValType::{I32, I64};
     TransactionStatement {
+        input_tokens: Vec::new(),
+        output_tokens: Vec::new(),
+        signers: Default::default(),
         entry,
         inputs: vec![],
         outputs: vec![OutputUtxo {
@@ -697,7 +714,7 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
         assert!(final_state.is_terminal() && !final_state.trapped);
         assert_eq!(
             final_state.comm_chain,
-            execution.commitments[&coroutine_id(index)]
+            execution.commitments[&coroutine_id(&execution.transaction, index)]
         );
         let started = std::time::Instant::now();
         eprintln!("Wasm instance {index}: verifying proof");

@@ -270,7 +270,7 @@ payload is a CBOR array `[network, context, message]`:
 | --------- | ----------- | ----------------------------------------- | --------------------- |
 | `0`       | fund        | `[nonce, account: bytes(32), amount]`     | `200 OK`              |
 | `1`       | publish     | `[nonce, wasm: bytes]`                    | `201 Created`, digest |
-| `2`       | transaction | `[inputs, outputs, events, proof: bytes]` | `201 Created`, digest |
+| `2`       | transaction | `[inputs, outputs, events, proof: bytes, required_signers: [u64]]` | `201 Created`, digest |
 
 - **Fund** is signed by the admin alone and creates the account if needed.
 - **Publish** has one signer with an account. The Wasm must be a component
@@ -278,6 +278,8 @@ payload is a CBOR array `[network, context, message]`:
   integers, and options, results and tuples of them.
 - **Transaction** has at least one unspent input and no duplicates.
   Spending a genesis output requires the admin's signature.
+  Script calls collect required signer IDs during execution. The mock ledger rejects
+  nonempty requirements until the contract ABI can represent envelope public keys.
 
 Errors are plain text: `400` for a malformed request or another network,
 `401` for a bad signature, `402` for a missing account or insufficient

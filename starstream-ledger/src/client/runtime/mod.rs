@@ -25,7 +25,7 @@ use crate::runtime::{apply_state, parse_state};
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::{
     CardanoCtx, Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest,
-    parse_digest,
+    parse_contract_external_id, parse_digest,
 };
 
 #[cfg(feature = "proving")]
@@ -98,7 +98,7 @@ pub async fn compile_contract(
             &self,
             external_id: &str,
         ) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
-            let digest = parse_digest(external_id)?;
+            let digest = parse_contract_external_id(external_id)?;
             let contract = self.0.get(&digest).with_context(|| {
                 error!(external_id, "unresolved contract import");
                 format!("contract identified by `external-id` `{external_id}` not found")
@@ -127,9 +127,7 @@ pub async fn compile_contract(
         .map(|import| import.map(|UtxoImport { external_id, .. }| external_id));
     for external_id in utxo_external_ids.chain(script_external_ids.into_iter().flatten()) {
         let external_id = external_id?;
-        let digest = parse_digest(external_id).with_context(|| {
-            format!("failed to parse `external-id` `{external_id}` as multibase multihash")
-        })?;
+        let digest = parse_contract_external_id(external_id)?;
         let wasm = match imports.get(&digest) {
             Some(Contract {
                 contract: Some(..), ..
@@ -191,6 +189,7 @@ pub async fn call_coordination_script(
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     prover: Option<&mut TransactionProver>,
 ) -> wasmtime::Result<(Transaction, wasmtime::Result<TracedCall>)> {
+    store.data_mut().required_signers.clear();
     let args_len = args.len();
     let param_len = export.ty().params().len();
     ensure!(
@@ -332,7 +331,7 @@ pub async fn call_coordination_script(
             instance: utxo.instance(),
         };
         let (contract, wasm) = if let Some(external_id) = cx.external_id.as_deref() {
-            let digest = parse_digest(external_id)?;
+            let digest = parse_contract_external_id(external_id)?;
             let Contract { wasm, .. } = imports
                 .get(&digest)
                 .with_context(|| format!("`{external_id}` import not found"))?;
@@ -373,6 +372,7 @@ pub async fn call_coordination_script(
         outputs: tx_outputs,
         events,
         proof: Box::default(),
+        required_signers: mem::take(&mut store.data_mut().required_signers),
     };
     #[cfg(feature = "proving")]
     if let Some(prover) = prover {
@@ -397,6 +397,9 @@ pub async fn call_coordination_script(
 
 #[derive(Debug, Default)]
 pub struct Ctx {
+    // TODO: replace u64 with a proper public key type eventually
+    // that requires changing the compiler and the std wit import
+    pub required_signers: BTreeSet<u64>,
     pub table: ResourceTable,
     pub starstream: StarstreamCtx,
     pub events: Vec<TransactionEvent>,
@@ -432,9 +435,9 @@ impl starstream::std::cardano::Host for Ctx {
 impl starstream::std::ledger::Host for Ctx {
     fn assert_transaction_signed_by(
         &mut self,
-        _key: starstream::std::ledger::PublicKey,
+        key: starstream::std::ledger::PublicKey,
     ) -> wasmtime::Result<()> {
-        // TODO: real implementation.
+        self.required_signers.insert(key.dummy);
         Ok(())
     }
 }

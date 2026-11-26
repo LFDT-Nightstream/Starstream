@@ -1,4 +1,5 @@
 use super::*;
+use crate::CoroutineId::{Coord, Utxo};
 use crate::{ccs::layout::*, verify_sat_batched};
 use starstream_interleaving_spec::{Out, QuintVerifier};
 
@@ -75,7 +76,7 @@ fn nested_invocations() -> Trace {
         exit(),
         resume(),
         ret(),
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(1)),
         },
         Step::PopEffectHandlerFrame,
@@ -84,7 +85,7 @@ fn nested_invocations() -> Trace {
         resume(),
         Step::PopEffectHandlerFrame,
         ret(),
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(0)),
         },
         Step::PopEffectHandlerFrame,
@@ -96,25 +97,28 @@ fn nested_invocations() -> Trace {
 fn search_follows_scopes_and_returns_to_each_raiser() {
     let trace = nested_invocations();
     for size in [1, 3, 8] {
-        verify_sat_batched(&trace, size).unwrap();
+        verify_sat_batched(&trace, size, &Default::default()).unwrap();
     }
     let normalized = crate::step::normalize(&trace);
     let owners: Vec<_> = normalized
         .steps
         .iter()
-        .map(|step| step.event_owner.encoded())
+        .map(|step| step.event_owner)
         .collect();
     // The skip has no observer; handler entries are attributed to the owner.
-    assert_eq!(&owners[8..11], &[1, 0, 2]);
-    assert_eq!(&owners[B_RAISE..=18], &[3, 2, 2, 3]);
+    assert_eq!(&owners[8..11], &[Utxo(0), Coord(0), Coord(1)]);
+    assert_eq!(
+        &owners[B_RAISE..=18],
+        &[Utxo(1), Coord(1), Coord(1), Utxo(1)]
+    );
     // Program events split per instance; the scheduler resynthesizes skips.
     let mut per_instance = vec![Trace::default(); 3];
     for (step, owner) in trace.0.iter().zip(&owners) {
         let process = match owner {
-            0 => continue,
-            2 => 0,
-            1 => 1,
-            3 => 2,
+            Coord(0) => continue,
+            Coord(1) => 0,
+            Utxo(0) => 1,
+            Utxo(1) => 2,
             _ => unreachable!(),
         };
         per_instance[process].0.push(step.clone());
@@ -135,13 +139,13 @@ fn suspended_scope_cannot_handle_a_nested_effect() {
         effect: SECOND,
         arguments: ARGS,
     };
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
     // Skipping the active scope would require it not to register SECOND.
     let mut skipped = nested_invocations();
     skipped.0.insert(B_ENTER, Step::SkipEffectHandler);
     // The honest registration read is 1, which a skip forbids...
     assert!(matches!(
-        verify_sat(&skipped),
+        verify_sat(&skipped, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: B_ENTER,
             constraint,
@@ -168,9 +172,9 @@ fn handler_owner_and_frame_id_come_from_the_selected_scope() {
     let (rows, preload) = build_witness_rows(&trace);
     verify_witness_rows(&rows, &preload).unwrap();
     for (column, forged) in [
-        // B (3) and A (1) instead of the coordinator owner (2).
-        (COL_CALL_TARGET, 3),
-        (COL_CALL_TARGET, 1),
+        // B and A instead of the coordinator owner.
+        (COL_CALL_TARGET, u64::from(Utxo(1).encoded())),
+        (COL_CALL_TARGET, u64::from(Utxo(0).encoded())),
         // A's frame id instead of the selected scope's.
         (COL_EFFECT_FRAME_ID, 2),
     ] {
@@ -205,7 +209,7 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
         let mut trace = nested_invocations();
         trace.0.insert(6, mutation);
         assert!(matches!(
-            verify_sat(&trace),
+            verify_sat(&trace, &Default::default()),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
                 step: 6,
                 constraint,
@@ -217,7 +221,7 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
         let mut trace = nested_invocations();
         trace.0.remove(unpopped);
         assert!(matches!(
-            verify_sat(&trace),
+            verify_sat(&trace, &Default::default()),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
                 constraint,
                 ..
@@ -230,12 +234,12 @@ fn scopes_cannot_change_during_a_pending_search() {
     let mut trace = nested_invocations();
     trace.0.insert(9, Step::PopEffectHandlerFrame);
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 9,
             constraint,
             ..
-        })) if constraint == "scope mutation runs in a live guest body"));
+        })) if constraint == "scope changes and signer assertions require a live guest body"));
 }
 
 #[test]
@@ -275,7 +279,7 @@ fn scope_mutation_cannot_skip_the_handler_exit() {
             step: 7,
             constraint,
             ..
-        })) if constraint == "scope mutation runs in a live guest body"));
+        })) if constraint == "scope changes and signer assertions require a live guest body"));
 }
 
 #[test]
@@ -283,7 +287,7 @@ fn scope_mutation_cannot_skip_the_handler_exit() {
 fn scope_walk_matches_quint() {
     let trace = nested_invocations();
     QuintVerifier::new().unwrap().verify(&trace).unwrap();
-    verify_sat_batched(&trace, 3).unwrap();
+    verify_sat_batched(&trace, 3, &Default::default()).unwrap();
 }
 
 #[test]
@@ -322,5 +326,5 @@ fn cannot_raise_effect_between_constructor_return_and_receive() {
             arguments: StarstreamValue::UNIT_VALUE,
         },
     );
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
 }

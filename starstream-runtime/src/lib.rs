@@ -215,6 +215,9 @@ pub trait Host:
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()>;
 
+    /// Called when a guest mint creates a token that the host can finalize.
+    fn token_minted(&mut self, _token: &Token) {}
+
     fn drop_token(store: StoreContextMut<Self>, cx: Resource<Token>) -> wasmtime::Result<()>;
 
     fn emit_event(
@@ -836,6 +839,7 @@ fn link_typed_token_mint<T: Host>(
             let token = instance
                 .construct_token(&mut store, instance_idx, idx, params)
                 .await?;
+            store.data_mut().token_minted(&token);
             let token = store.data_mut().table().push(token)?;
             let token = token.try_into_resource_any(store.as_context_mut())?;
             results[0] = Val::Resource(token);

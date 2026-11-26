@@ -40,7 +40,10 @@ sets `Finished`.
 Finalization scans every UTXO in ID order (`get_storage` or `skip_consumed`). Each
 `get_storage` is followed by `read_abi` for every final-generation registration,
 in order, including duplicates, matching `OutputUtxo.methods`. These host-synthesized
-reads are not program events. After the UTXO/ABI scan, `finalize_coordinator`
+reads are not program events. Next, `get_token_storage` scans all tokens in ID
+order. Mint allocates IDs after the loaded tokens, and its exported entry establishes
+the interface for attach and the storage getter. Each output binds the storage returned
+by the token’s getter, its final owner from token owner memory, and its final trace root. Then `finalize_coordinator`
 enumerates every allocated coordinator in ID order, starting at Coord(1), then
 `finish_transaction` completes the transaction once the scan has reached the
 allocator. Coord(0) owns no trace and is never finalized.

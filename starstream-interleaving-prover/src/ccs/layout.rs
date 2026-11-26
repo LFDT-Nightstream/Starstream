@@ -12,8 +12,10 @@ define_column_region! {
     indices: pub,
     columns: [
         COL_ONE: Field => "",
+        COL_SEL_MINT: Boolean => "call a fresh token mint",
+        COL_SEL_ENTER_MINT: Boolean => "enter the minted token",
         COL_SEL_NEW_UTXO: Boolean => "selector for the NewUtxo action",
-        COL_SEL_RECEIVE_NEW_UTXO_HANDLE: Boolean => "selector for the ReceiveNewUtxoHandle action",
+        COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE: Boolean => "selector for the ReceiveNewResourceHandle action",
         COL_SEL_ENTER_CONSTRUCTOR: Boolean => "selector for the EnterConstructor action",
         COL_SEL_YIELD_BEGIN: Boolean => "selector for the YieldBegin action",
         COL_SEL_REGISTER_METHOD: Boolean => "selector for the RegisterMethod action",
@@ -24,14 +26,28 @@ define_column_region! {
         COL_SEL_RAISE_EFFECT: Boolean => "selector for the RaiseEffect action",
         COL_SEL_PUSH_EFFECT_HANDLER_FRAME: Boolean => "selector for the PushEffectHandlerFrame action",
         COL_SEL_ADD_EFFECT_HANDLER: Boolean => "selector for the AddEffectHandler action",
+        COL_SEL_UPCAST: Boolean => "bind an upcast resource handle",
+        COL_UPCAST_HANDLE_DIFF_INVERSE: Field => "inverse difference of the fresh and source handles on upcast",
+        COL_RESOLVER_SECOND_READ: Boolean => "read the destination of attach or the source of upcast",
+        COL_SEL_ATTACH: Boolean => "attach a detached token to a UTXO",
+        COL_SEL_ENTER_ATTACH: Boolean => "enter the token attach callback",
+        COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE: U32 => "local handle for the second resolver lookup",
+        COL_RESOLVER_SECOND_VALUE: U32 => "packed coroutine ID from the second resolver lookup",
+        COL_TOKEN_INTERFACE: U32 => "token interface within the bound component",
+        COL_TOKEN_EVENT: Boolean => "event emitted by a token",
+        COL_SEL_ASSERT_SIGNED_BY: Boolean => "signer membership check",
         COL_SEL_POP_EFFECT_HANDLER_FRAME: Boolean => "selector for the PopEffectHandlerFrame action",
         COL_SEL_SKIP_EFFECT_HANDLER: Boolean => "selector for the SkipEffectHandler host search step",
         COL_SEL_ENTER_EFFECT_HANDLER: Boolean => "selector for the EnterEffectHandler action",
         COL_SEL_EXIT_EFFECT_HANDLER: Boolean => "selector for the ExitEffectHandler action",
         COL_SEL_RESUME_EFFECT: Boolean => "selector for the ResumeEffect action",
         COL_SEL_PADDING: Boolean => "state-preserving circuit-only padding slot",
-        COL_SEL_SET_STORAGE: Boolean => "load an input UTXO",
+        COL_SEL_SET_STORAGE: Boolean => "load an input resource",
+        COL_UTXO_LOAD: Boolean => "SetStorage for a UTXO",
+        COL_TOKEN_INTERFACE_WRITE: Boolean => "initialize the token interface on storage load or mint entry",
+        COL_TOKEN_LOAD: Boolean => "SetStorage for a token",
         COL_SEL_PRELOAD_METHOD: Boolean => "load a ledger ABI entry",
+        COL_SEL_GET_TOKEN_STORAGE: Boolean => "export the next token",
         COL_SEL_GET_STORAGE: Boolean => "export the next surviving UTXO",
         COL_SEL_SKIP_CONSUMED: Boolean => "skip the next consumed UTXO",
         COL_SEL_FINISH_TRANSACTION: Boolean => "finish the output scan",
@@ -43,8 +59,8 @@ define_column_region! {
         COL_EVENT_OWNER: U32 => "packed instance owning the program event or final trace root being read",
         COL_UTXO_EVENT: Boolean => "this row emits a program event owned by a UTXO",
         COL_COORD_EVENT: Boolean => "this row emits a program event owned by a coordinator",
-        COL_BOUNDARY_UTXO: U32 => "packed UTXO ID for loading or the output scan",
-        COL_OUTPUT_REMAINING: U32 => "instances after this one in the active scan: next_utxo_id - output_cursor - 1 on output scans, next_coordinator_id - coordinator_cursor - 1 on coordinator finalization",
+        COL_BOUNDARY_COROUTINE_ID: U32 => "encoded coroutine ID for input loading or the output scan",
+        COL_OUTPUT_REMAINING: U32 => "remaining instances of this kind after the current output or coordinator",
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
         COL_CURR_AFTER: U32 => "packed coroutine id that has the turn in the next step",
         COL_INSTANCE_DEPTH_BEFORE: U32 => "runtime invocation depth excluding the entry coordinator",
@@ -64,7 +80,7 @@ define_column_region! {
         COL_CALL_FRAME_IS_EFFECT: Boolean => "whether the call frame is an effect frame",
         COL_CALL_FRAME_CONSTRUCTOR: Boolean => "program call is a constructor call",
         COL_CALL_FRAME_SAVED_PHASE: (Bits(4)) => "phase saved in an effect frame and restored on resume",
-        COL_RETURN_REQUIRES_UNIT: Boolean => "return is from a constructor or the entry coordinator",
+        COL_UNIT_RETURN_WEIGHT: Field => "sum of token, constructor and root indicators on Return",
         COL_CALL_FRAME_SAVED_EFFECT_HEAD: U32 => "caller's effect head saved on push, restored by an accepted handler exit",
         COL_CALL_FRAME_SAVED_EFFECT_DEPTH: U32 => "caller's local scope depth saved on push, restored on return and handler exit",
         COL_EFFECT_HANDLED: Boolean => "handler exit status: continue search = 0, resume = 1",
@@ -77,9 +93,12 @@ define_column_region! {
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
         COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: event identity (method, script, constructor or effect), pending-identity hand-off and method-table ROM lookup value",
-        COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
+        COL_METHOD_INDEX: (Bits(29)) => "method dictionary index or signer ROM index, selected by opcode",
         COL_METHOD_LOOKUP: Boolean => "a method, ABI or effect step resolves a method hash through the method table",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
+        // The signer lookup constraint gives zero on inactive rows. On active rows
+        // a 29-bit index addresses up to eight limbs within a 32-bit ROM address.
+        COL_SIGNER_KEY_ADDR: [(Implied(32)); SIGNER_KEY_LIMBS] => "signer index * signer key stride + limb offset",
         COL_ABI_GENERATION_READ: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi reads a UTXO's current ABI generation",
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
         COL_CALL_TARGET_IS_ZERO: Boolean => "whether the call target is Coord(0), the transaction context",
@@ -106,9 +125,9 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_ADDR_CID: U32 => "packed holder coroutine id in the resource key",
         COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "resource handle in the resource key",
         COL_RESOURCE_RESOLVER_VALUE: U32 => "the packed coroutine id assigned to the resource at (cid, handle)",
-        COL_RESOURCE_RESOLVER_BEFORE: Field => "zero old value required when binding a previously unbound resource",
-        COL_RESOURCE_RESOLVER_WRITE: Boolean => "SetStorage or ReceiveNewUtxoHandle writes a resource binding",
-        COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
+        COL_UNBOUND_VALUE: Field => "zero old value for fresh handle bindings and detached tokens",
+        COL_RESOURCE_RESOLVER_WRITE: Boolean => "this row binds a fresh holder-local handle",
+        COL_RESOURCE_RESOLVER_READ: Boolean => "this row resolves a call receiver handle",
 
         // TODO: limit curr side so that this doesn't overflow
         COL_EVENT_OWNER_STRIDE_8: [U32; 8] => "event owner local index * 8 + i, the address in its kind's trace digest RAM",
@@ -128,8 +147,8 @@ define_column_region! {
         COL_TX_PHASE_AFTER: (Bits(2)) => "transaction phase after this row",
         COL_LAST_INPUT_HAS_ABI_BEFORE: Boolean => "last loaded UTXO has a nonempty ABI (or none has been loaded yet)",
         COL_LAST_INPUT_HAS_ABI_AFTER: Boolean => "last loaded UTXO has a nonempty ABI after this row (or none has been loaded yet)",
-        COL_OUTPUT_CURSOR_BEFORE: U32 => "next UTXO ID to finalize",
-        COL_OUTPUT_CURSOR_AFTER: U32 => "next UTXO ID after this row",
+        COL_OUTPUT_CURSOR_BEFORE: U32 => "output scan position before this row (UTXOs followed by tokens)",
+        COL_OUTPUT_CURSOR_AFTER: U32 => "output scan position after this row",
         COL_NEXT_COORD_ID_BEFORE: U32 => "coordinator id allocator; Coord(0) is the transaction context",
         COL_NEXT_COORD_ID_AFTER: U32 => "coordinator id allocator after this row",
         COL_COORD_CURSOR_BEFORE: U32 => "next coordinator ID to finalize",
@@ -138,6 +157,8 @@ define_column_region! {
         COL_CURR_PHASE_AFTER: (Bits(4)) => "internal phase of curr in the next step",
         COL_CALL_SP_BEFORE: U32 => "call stack pointer before",
         COL_CALL_SP_AFTER: U32 => "call stack pointer after",
+        COL_NEXT_TOKEN_ID_BEFORE: U32 => "next token index before this row",
+        COL_NEXT_TOKEN_ID_AFTER: U32 => "next token index after this row",
         COL_NEXT_UTXO_ID_BEFORE: U32 => "utxo id allocator",
         COL_NEXT_UTXO_ID_AFTER: U32 => "utxo id allocator",
         COL_ENABLED_METHOD_LOG_LEN_BEFORE: U32 => "next free enabled-method append-log entry",
@@ -148,8 +169,8 @@ define_column_region! {
         COL_EFFECT_DEPTH_AFTER: U32 => "local scope depth after this step",
         COL_EFFECT_ARENA_LEN_BEFORE: U32 => "scopes allocated so far; ids are never reused",
         COL_EFFECT_ARENA_LEN_AFTER: U32 => "scopes allocated after this step",
-        COL_PENDING_ROOT_BEFORE: [Field; 4] => "hand-off register: the argument root of the pending program call, or the result root of the pending return or handler exit",
-        COL_PENDING_ROOT_AFTER: [Field; 4] => "hand-off root after this row",
+        COL_PENDING_VALUE_BEFORE: [Field; 4] => "call arguments, return value, or resolved attach destination carried into this row",
+        COL_PENDING_VALUE_AFTER: [Field; 4] => "call arguments, return value, or resolved attach destination carried out of this row",
         COL_PENDING_METHOD_BEFORE: [Field; 8] => "hand-off register: method, script or constructor identity limbs of the pending program call",
         COL_PENDING_METHOD_AFTER: [Field; 8] => "hand-off identity after this row",
     ]
@@ -179,13 +200,23 @@ define_column_region! {
     ]
 }
 
-pub const SELECTORS: [usize; 27] = [
+pub(crate) const SIGNER_KEY_LIMBS: usize = u64::BITS as usize / u32::BITS as usize;
+/// Signer and method lookups occur on disjoint opcodes and share an advice column.
+pub(crate) const COL_SIGNER_INDEX: usize = COL_METHOD_INDEX;
+
+pub const SELECTORS: [usize; 34] = [
+    COL_SEL_UPCAST,
+    COL_SEL_ATTACH,
+    COL_SEL_ENTER_ATTACH,
+    COL_SEL_ASSERT_SIGNED_BY,
     COL_SEL_CALL_COORDINATOR,
     COL_SEL_FINALIZE_COORDINATOR,
     COL_SEL_BEGIN_EXECUTION,
     COL_SEL_READ_ABI,
+    COL_SEL_MINT,
+    COL_SEL_ENTER_MINT,
     COL_SEL_NEW_UTXO,
-    COL_SEL_RECEIVE_NEW_UTXO_HANDLE,
+    COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE,
     COL_SEL_ENTER_CONSTRUCTOR,
     COL_SEL_YIELD_BEGIN,
     COL_SEL_REGISTER_METHOD,
@@ -205,6 +236,7 @@ pub const SELECTORS: [usize; 27] = [
     COL_SEL_SET_STORAGE,
     COL_SEL_PRELOAD_METHOD,
     COL_SEL_GET_STORAGE,
+    COL_SEL_GET_TOKEN_STORAGE,
     COL_SEL_SKIP_CONSUMED,
     COL_SEL_FINISH_TRANSACTION,
 ];
@@ -228,3 +260,6 @@ pub(crate) fn range_check_layout() -> &'static RangeCheckLayout {
         .expect("valid range-check layout")
     })
 }
+
+// The second resolver port is idle during token output reads.
+pub(crate) const COL_OUTPUT_TOKEN_OWNER: usize = COL_RESOLVER_SECOND_VALUE;

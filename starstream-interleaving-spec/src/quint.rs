@@ -383,8 +383,18 @@ fn render_with_statement(
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
+            let input_tokens = statement.input_tokens.iter()
+                .map(|t| format!("{{ owner: {}, storage: {} }}", t.owner, Qnt(&t.storage)))
+                .collect::<Vec<_>>().join(", ");
+            let output_tokens = statement.output_tokens.iter()
+                .map(|t| format!("{{ token: {}, owner: {}, storage: {} }}", t.token, t.owner, Qnt(&t.storage)))
+                .collect::<Vec<_>>().join(", ");
+            let signers = statement.signers.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
             format!(
-                "new_transaction({{ script: {}, arguments: {} }}, List({inputs}), List({outputs}))",
+                "{{ tx_signers: Set({signers}), input_tokens: List({input_tokens}), output_tokens: List({output_tokens}), ...new_transaction({{ script: {}, arguments: {} }}, List({inputs}), List({outputs})) }}",
                 Qnt(&statement.entry.script),
                 Qnt(&statement.entry.arguments)
             )
@@ -532,28 +542,51 @@ impl fmt::Display for Qnt<&Step> {
                 write!(f, "begin_execution({}, {})", Qnt(script), Qnt(arguments))
             }
             Step::SetStorage {
+                kind,
                 storage,
-                entry_utxo_handle,
-            } => {
-                write!(
+                entry_handle,
+            } => match kind {
+                crate::StorageKind::Utxo => {
+                    write!(f, "set_storage({}, {})", Qnt(storage), Qnt(entry_handle))
+                }
+                crate::StorageKind::Token { interface } => write!(
                     f,
-                    "set_storage({}, {})",
+                    "set_token_storage({}, {}, {})",
                     Qnt(storage),
-                    Qnt(entry_utxo_handle)
-                )
-            }
+                    Qnt(entry_handle),
+                    interface
+                ),
+            },
             Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),
+            Step::GetTokenStorage { interface, storage } => {
+                write!(f, "get_token_storage({}, {})", interface, Qnt(storage))
+            }
             Step::GetStorage { storage } => write!(f, "get_storage({})", Qnt(storage)),
             Step::SkipConsumed => f.write_str("skip_consumed"),
             Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),
             Step::FinishTransaction => f.write_str("finish_transaction"),
             Step::FinalizeCoordinator => f.write_str("finalize_coordinator"),
+            Step::Mint {
+                constructor,
+                arguments,
+            } => write!(f, "mint({}, {})", Qnt(constructor), Qnt(arguments)),
+            Step::EnterMint {
+                constructor,
+                arguments,
+                interface,
+            } => write!(
+                f,
+                "enter_mint({}, {}, {})",
+                Qnt(constructor),
+                Qnt(arguments),
+                interface
+            ),
             Step::NewUtxo {
                 constructor,
                 arguments,
             } => write!(f, "new_utxo({}, {})", Qnt(constructor), Qnt(arguments)),
-            Step::ReceiveNewUtxoHandle { resource } => {
-                write!(f, "receive_new_utxo_handle({})", Qnt(resource))
+            Step::ReceiveNewResourceHandle { resource } => {
+                write!(f, "receive_new_resource_handle({})", Qnt(resource))
             }
             Step::EnterConstructor {
                 constructor,
@@ -564,6 +597,16 @@ impl fmt::Display for Qnt<&Step> {
                 Qnt(constructor),
                 Qnt(arguments)
             ),
+            Step::Upcast { source, result } => {
+                write!(f, "upcast({}, {})", Qnt(source), Qnt(&result.0))
+            }
+            Step::Attach { token, destination } => {
+                write!(f, "attach({}, {})", Qnt(token), Qnt(destination))
+            }
+            Step::EnterAttach {
+                destination,
+                interface,
+            } => write!(f, "enter_attach({}, {})", Qnt(destination), interface),
             Step::YieldBegin => f.write_str("yield_begin"),
             Step::RegisterMethod { method } => write!(f, "register_method({})", Qnt(method)),
             Step::Return { result } => write!(f, "return({})", Qnt(result)),
@@ -590,6 +633,7 @@ impl fmt::Display for Qnt<&Step> {
             Step::AddEffectHandler { effect } => {
                 write!(f, "add_effect_handler({})", Qnt(effect))
             }
+            Step::AssertSignedBy { key } => write!(f, "assert_signed_by({key})"),
             Step::PopEffectHandlerFrame => f.write_str("pop_effect_handler_frame"),
             Step::SkipEffectHandler => f.write_str("skip_effect_handler"),
             Step::RaiseEffect { effect, arguments } => {
@@ -670,7 +714,7 @@ mod tests {
                 Return {
                     result: StarstreamValue::UNIT_VALUE.into(),
                 },
-                ReceiveNewUtxoHandle {
+                ReceiveNewResourceHandle {
                     resource: ResourceHandle(0).into(),
                 },
                 Return {

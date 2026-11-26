@@ -449,6 +449,7 @@ async fn http() {
         inputs,
         outputs,
         events,
+        required_signers,
         proof,
     } = client
         .call_coordination_script(
@@ -495,6 +496,7 @@ async fn http() {
                 inputs,
                 outputs: outputs.clone(),
                 events: events.clone(),
+                required_signers: required_signers.clone(),
                 proof: proof.clone(),
             },
         )
@@ -509,6 +511,7 @@ async fn http() {
                 inputs: vec![TransactionInput::genesis(0), TransactionInput::genesis(0)],
                 outputs: outputs.clone(),
                 events: events.clone(),
+                required_signers: required_signers.clone(),
                 proof: proof.clone(),
             },
         )
@@ -520,6 +523,7 @@ async fn http() {
         inputs: vec![TransactionInput::genesis(0)],
         outputs: outputs.clone(),
         events,
+        required_signers,
         proof,
     };
     let tx_cbor = minicbor::to_vec(&tx).unwrap();
@@ -617,6 +621,7 @@ async fn http() {
         outputs: outputs.clone(),
         events: Vec::default(),
         proof: Box::default(),
+        required_signers: Default::default(),
     };
     let tx_digest: [u8; 32] = Sha256::digest(minicbor::to_vec(&tx).unwrap()).into();
     let tx_payload = minicbor::to_vec(Envelope {

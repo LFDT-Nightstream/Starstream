@@ -98,7 +98,11 @@ async fn execute_with(
 /// final trace root, callees included, into the transaction digest.
 fn assert_accepted(execution: &starstream_proving_runtime::CapturedExecution) {
     use starstream_interleaving_prover::{CoroutineId, TraceCommitments, verify_transaction_sat};
-    starstream_interleaving_prover::verify_sat(&execution.transaction.execution).unwrap();
+    starstream_interleaving_prover::verify_sat(
+        &execution.transaction.execution,
+        &Default::default(),
+    )
+    .unwrap();
     // These fixtures create no UTXOs: instances are coordinators, allocated
     // in the order they were instantiated.
     let commitments: TraceCommitments = execution

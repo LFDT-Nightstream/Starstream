@@ -12,7 +12,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_interleaving_spec::events::EventKind;
 use starstream_interleaving_spec::{
     BLOCK_SIZE, ConstructorIdentity, EffectIdentity, METHOD_WORDS, MethodSelector, ScriptIdentity,
-    StarstreamValue,
+    StarstreamValue, StorageKind,
 };
 use wasmparser::{CompositeInnerType, Parser, Payload, TypeRef, ValType};
 
@@ -49,6 +49,8 @@ pub struct ComponentTemplates {
     pub import_frefs: BTreeMap<(String, String), u32>,
     /// Export frefs keyed by name.
     pub export_frefs: BTreeMap<String, u32>,
+    /// Resource kind restored by each storage setter, keyed by function reference.
+    pub(crate) storage_setters: BTreeMap<u32, StorageKind>,
     /// Exports that can start a coordinator, new UTXO, or loaded input.
     pub(crate) initial_exports: Vec<u32>,
 }
@@ -97,15 +99,17 @@ enum ExportKind {
     /// callee-local `utxo-context` handle before the user arguments. Entered
     /// under the constructor identity its caller commits to.
     Constructor(ConstructorIdentity),
+    Mint(ConstructorIdentity, u32),
     /// `<utxo>#[method]utxo.<name>`: the exported method takes the
     /// callee-local resource receiver before the user arguments.
     Method(MethodSelector),
+    EnterAttach(u32),
     /// An allowlisted plain export: the transaction entrypoint.
     CoordinationScript,
-    /// `<utxo>#get-storage`: publishes the storage record when it returns.
-    GetStorage,
-    /// `<utxo>#set-storage`: loads the storage record when it is entered.
-    SetStorage,
+    /// `<resource>#get-storage`: publishes the storage record when it returns.
+    GetStorage(StorageKind),
+    /// `<resource>#set-storage`: loads the storage record when it is entered.
+    SetStorage(StorageKind),
     /// A compiler-generated export with no interleaving semantics.
     Internal,
     /// `starstream:effect-handler/<abi>#<effect>`: the dispatcher takes the
@@ -128,9 +132,13 @@ struct Root {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ImportKind {
+    Upcast,
+    Attach,
+    AssertSignedBy,
     YieldBegin,
     RegisterMethod,
     NewUtxo(ConstructorIdentity),
+    Mint(ConstructorIdentity),
     CallMethod(MethodSelector),
     Advice,
     Effect(EffectIdentity),
@@ -182,6 +190,7 @@ fn build_templates(
     let mut import_frefs = BTreeMap::new();
     let mut export_frefs = BTreeMap::new();
     let mut initial_exports = Vec::new();
+    let mut storage_setters = BTreeMap::new();
 
     for export in &exports {
         let fref = export.index.saturating_add(1);
@@ -189,9 +198,15 @@ fn build_templates(
         let classified = classify_export(export, &coordination_exports, coordinator_abis)?;
         if matches!(
             classified,
-            ExportKind::CoordinationScript | ExportKind::Constructor(_) | ExportKind::SetStorage
+            ExportKind::CoordinationScript
+                | ExportKind::Constructor(_)
+                | ExportKind::Mint(..)
+                | ExportKind::SetStorage(_)
         ) {
             initial_exports.push(fref);
+        }
+        if let ExportKind::SetStorage(kind) = classified {
+            storage_setters.insert(fref, kind);
         }
         if matches!(classified, ExportKind::CoordinationScript) {
             matched_coordination_exports.insert(export.name.as_str());
@@ -253,6 +268,7 @@ fn build_templates(
         import_frefs,
         export_frefs,
         initial_exports,
+        storage_setters,
     })
 }
 
@@ -322,11 +338,13 @@ pub fn flat_value_root(types: &[ValType], values: &[u64]) -> StarstreamValue {
 impl ExportKind {
     const fn name(self) -> &'static str {
         match self {
+            Self::Mint(..) => "mint",
             Self::Constructor(_) => "constructor",
+            Self::EnterAttach(_) => "token attach",
             Self::Method(_) => "method",
             Self::CoordinationScript => "coordination script",
-            Self::GetStorage => "get-storage",
-            Self::SetStorage => "set-storage",
+            Self::GetStorage(_) => "get-storage",
+            Self::SetStorage(_) => "set-storage",
             Self::Internal => "internal",
             Self::EffectHandler(_) => "effect handler",
         }
@@ -383,9 +401,42 @@ fn classify_export(
         if let Some(method) = item.strip_prefix(METHOD_PREFIX) {
             return Ok(ExportKind::Method(method_hash_from_segment(method)?));
         }
+        let storage_kind = if let Some(index) = abis
+            .token_interfaces
+            .iter()
+            .position(|name| name == instance)
+        {
+            let interface = u32::try_from(index).expect("component interface index fits u32");
+            if let Some(name) = item.strip_prefix("[static]token.")
+                && let Some(signature) = abis
+                    .constructor_exports
+                    .get(instance)
+                    .and_then(|s| s.get(item))
+            {
+                return Ok(ExportKind::Mint(
+                    hash_constructor(
+                        &abis.contract_digest,
+                        instance,
+                        name,
+                        &export.params,
+                        Some(*signature),
+                    )?,
+                    interface,
+                ));
+            }
+            if item == "[method]token.attach" {
+                return Ok(ExportKind::EnterAttach(interface));
+            }
+            if let Some(method) = item.strip_prefix("[method]token.") {
+                return Ok(ExportKind::Method(method_hash_from_segment(method)?));
+            }
+            StorageKind::Token { interface }
+        } else {
+            StorageKind::Utxo
+        };
         return Ok(match item {
-            GET_STORAGE_EXPORT => ExportKind::GetStorage,
-            SET_STORAGE_EXPORT => ExportKind::SetStorage,
+            GET_STORAGE_EXPORT => ExportKind::GetStorage(storage_kind),
+            SET_STORAGE_EXPORT => ExportKind::SetStorage(storage_kind),
             _ => ExportKind::Internal,
         });
     }
@@ -614,6 +665,7 @@ fn require_receiver(
 
 /// Storage record types from the matching `set-storage` export.
 fn storage_record_types(
+    kind: StorageKind,
     export: &FunctionExport,
     exports: &[FunctionExport],
 ) -> Result<Box<[ValType]>, TemplateBuildError> {
@@ -631,14 +683,19 @@ fn storage_record_types(
             name: export.name.clone(),
             sibling: sibling.clone(),
         })?;
-    let Some((ValType::I32, record)) = setter.params.split_first() else {
-        return Err(TemplateBuildError::InvalidStorageExport {
-            name: sibling,
-            message: format!(
-                "expected an i32 context handle followed by the flat record, found {:?}",
-                setter.params
-            ),
-        });
+    let record = match (kind, setter.params.as_ref()) {
+        (StorageKind::Token { .. }, fields) | (StorageKind::Utxo, [ValType::I32, fields @ ..]) => {
+            fields
+        }
+        (StorageKind::Utxo, _) => {
+            return Err(TemplateBuildError::InvalidStorageExport {
+                name: sibling,
+                message: format!(
+                    "expected an i32 context handle followed by the flat record, found {:?}",
+                    setter.params
+                ),
+            });
+        }
     };
     if setter.results.as_ref() != [ValType::I32] {
         return Err(TemplateBuildError::InvalidStorageExport {
@@ -680,18 +737,23 @@ fn get_storage_root(
     export: &FunctionExport,
     record: &[ValType],
 ) -> Result<Root, TemplateBuildError> {
-    if export.params.as_ref() != [ValType::I32] || export.results.as_ref() != [ValType::I32] {
+    let result = match record {
+        [ty] => *ty,
+        _ => ValType::I32, // Pointer to a multi-field return record.
+    };
+    if export.params.as_ref() != [ValType::I32] || export.results.as_ref() != [result] {
         return Err(TemplateBuildError::InvalidStorageExport {
             name: export.name.clone(),
             message: format!(
-                "expected (i32) -> i32, found {:?} -> {:?}",
+                "expected (i32) -> {result:?}, found {:?} -> {:?}",
                 export.params, export.results
             ),
         });
     }
     let sources = match record {
-        [] => Vec::new(),
-        [ValType::I32] => vec![SlotBinding::OutputElem { limb: Limb::Lo }],
+        [ty] => flat_limbs(*ty)
+            .map(|limb| SlotBinding::OutputElem { limb })
+            .collect(),
         record => record
             .iter()
             .zip(record_field_offsets(record))
@@ -734,6 +796,36 @@ fn build_export_events(
                 exit: return_exit_events(Root::unit())?,
             })
         }
+        ExportKind::Mint(constructor, interface) => {
+            let mut entry = Sequence::op(EventKind::EnterMint);
+            for word in constructor.0 {
+                entry = entry.constant_i32(word)?;
+            }
+            let entry = entry
+                .root(entry_arguments_root(export, &mut inputs, 0)?)?
+                .constant_i32(interface)?
+                .finish()?;
+            Ok(ExportEvents {
+                entry,
+                exit: return_exit_events(Root::unit())?,
+            })
+        }
+        ExportKind::EnterAttach(interface) => {
+            if export.params.as_ref() != [ValType::I32, ValType::I32] || !export.results.is_empty()
+            {
+                return Err(TemplateBuildError::InvalidAttachExport(export.name.clone()));
+            }
+            let input = inputs.take(1, export)?;
+            let mut entry = Sequence::op(EventKind::EnterAttach)
+                .constant_i32(interface)?
+                .map(1, |b| b.input_local_i32(input, 1))?
+                .finish()?;
+            entry.extend(bootstrap_receiver(export, &mut inputs)?);
+            Ok(ExportEvents {
+                entry,
+                exit: return_exit_events(Root::unit())?,
+            })
+        }
         ExportKind::Method(method) => {
             require_receiver(export, kind, "resource receiver")?;
             let mut entry = Sequence::op(EventKind::EnterCall);
@@ -767,27 +859,40 @@ fn build_export_events(
                 exit: return_exit_events(export_result_root(export)?)?,
             })
         }
-        ExportKind::GetStorage => {
+        ExportKind::GetStorage(storage_kind) => {
             require_receiver(export, kind, "resource receiver")?;
-            let record = storage_record_types(export, exports)?;
+            let record = storage_record_types(storage_kind, export, exports)?;
             let entry = bootstrap_receiver(export, &mut inputs)?;
-            let exit =
-                Sequence::op(EventKind::GetStorage).root(get_storage_root(export, &record)?)?;
+            let root = get_storage_root(export, &record)?;
+            let exit = match storage_kind {
+                StorageKind::Utxo => Sequence::op(EventKind::GetStorage).root(root)?,
+                StorageKind::Token { interface } => Sequence::op(EventKind::GetTokenStorage)
+                    .root(root)?
+                    .constant_i32(interface)?,
+            };
             Ok(ExportEvents {
                 entry,
                 exit: exit.finish()?,
             })
         }
-        ExportKind::SetStorage => {
-            require_receiver(export, kind, "utxo-context handle")?;
-            storage_record_types(export, exports)?;
+        ExportKind::SetStorage(storage_kind) => {
+            let fields = storage_record_types(storage_kind, export, exports)?;
+            let first_field = export.params.len() - fields.len();
             let entry = Sequence::op(EventKind::SetStorage).root(entry_arguments_root(
                 export,
                 &mut inputs,
-                1,
+                first_field,
             )?)?;
-            let mut entry = entry.finish()?;
-            entry.extend(bootstrap_receiver(export, &mut inputs)?);
+            let mut entry = entry
+                .constant_i32(u32::from(matches!(storage_kind, StorageKind::Token { .. })))?
+                .constant_i32(match storage_kind {
+                    StorageKind::Token { interface } => interface,
+                    StorageKind::Utxo => 0,
+                })?
+                .finish()?;
+            if storage_kind == StorageKind::Utxo {
+                entry.extend(bootstrap_receiver(export, &mut inputs)?);
+            }
             // The returned resource is not the coordinator-local binding.
             Ok(ExportEvents {
                 entry,
@@ -854,6 +959,27 @@ fn classify_import(
             message: "script imports require component ABI metadata".into(),
         });
     }
+    if import.module == "starstream:std/ledger" && import.field == "assert-transaction-signed-by" {
+        return Ok(ImportKind::AssertSignedBy);
+    }
+    if import.field == "upcast"
+        && [
+            SELF_INTERFACE_PREFIX,
+            TYPED_UTXO_INTERFACE_PREFIX,
+            "starstream:token/",
+        ]
+        .iter()
+        .any(|prefix| import.module.starts_with(prefix))
+    {
+        return Ok(ImportKind::Upcast);
+    }
+    if (import.module == BUILTIN_INTERFACE && import.field == "attach")
+        || ((import.module.starts_with(SELF_INTERFACE_PREFIX)
+            || import.module.starts_with("starstream:token/"))
+            && import.field == "[method]token.attach")
+    {
+        return Ok(ImportKind::Attach);
+    }
     if import.module == UTXO_CONTEXT_INTERFACE {
         return Ok(match import.field.as_str() {
             RESUME_METHOD => ImportKind::YieldBegin,
@@ -862,23 +988,31 @@ fn classify_import(
         });
     }
     let own = import.module.strip_prefix(SELF_INTERFACE_PREFIX);
-    let typed = import.module.strip_prefix(TYPED_UTXO_INTERFACE_PREFIX);
-    if let Some(utxo) = own.or(typed) {
-        if let Some(constructor) = import.field.strip_prefix(CONSTRUCTOR_PREFIX) {
-            // The identity names the contract that exports the UTXO: this one,
+    let typed = import
+        .module
+        .strip_prefix(TYPED_UTXO_INTERFACE_PREFIX)
+        .or_else(|| import.module.strip_prefix("starstream:token/"));
+    if let Some(resource) = own.or(typed) {
+        let mint = import.field.strip_prefix("[static]token.").filter(|_| {
+            abis.constructor_imports
+                .get(&import.module)
+                .is_some_and(|s| s.contains_key(&import.field))
+        });
+        if let Some(constructor) = mint.or_else(|| import.field.strip_prefix(CONSTRUCTOR_PREFIX)) {
+            // The identity names the contract that exports the resource: this one,
             // or the one a typed import's `external-id` points to.
             let contract_digest = if own.is_some() {
                 &abis.contract_digest
             } else {
-                abis.utxo_contracts
-                    .get(utxo)
-                    .ok_or_else(|| TemplateBuildError::CoordinatorAbi {
-                        message: format!("typed UTXO import {utxo} has no external-id"),
-                    })?
+                abis.resource_contracts.get(&import.module).ok_or_else(|| {
+                    TemplateBuildError::CoordinatorAbi {
+                        message: format!("typed resource import {resource} has no external-id"),
+                    }
+                })?
             };
-            return Ok(ImportKind::NewUtxo(hash_constructor(
+            let identity = hash_constructor(
                 contract_digest,
-                utxo,
+                resource,
                 constructor,
                 &import.params,
                 abis.constructor_signature(
@@ -886,7 +1020,12 @@ fn classify_import(
                     &import.module,
                     &import.field,
                 )?,
-            )?));
+            )?;
+            return Ok(if mint.is_some() {
+                ImportKind::Mint(identity)
+            } else {
+                ImportKind::NewUtxo(identity)
+            });
         }
         if let Some(method) = import.field.strip_prefix(METHOD_PREFIX) {
             return Ok(ImportKind::CallMethod(method_hash_from_segment(method)?));
@@ -925,9 +1064,47 @@ fn build_import_template(
 ) -> Result<ImportEvents, TemplateBuildError> {
     let kind = classify_import(import, abis)?;
     let call = match kind {
+        ImportKind::Upcast => {
+            require_signature(import, &[ValType::I32], &[ValType::I32])?;
+            let mut events = Sequence::op(EventKind::Upcast)
+                .arg_i32(0)?
+                .map(1, |b| b.push(SlotBinding::ResultElem { limb: Limb::Lo }))?
+                .finish()?;
+            events.extend(
+                EventSequenceBuilder::advice()
+                    .push(SlotBinding::ResultElem { limb: Limb::Hi })?
+                    .finish()?,
+            );
+            Ok(events)
+        }
+        ImportKind::Attach => {
+            require_signature(import, &[ValType::I32, ValType::I32], &[])?;
+            return Ok(ImportEvents {
+                call: Sequence::op(EventKind::Attach)
+                    .arg_i32(0)?
+                    .arg_i32(1)?
+                    .finish()?,
+                return_: Some(
+                    Sequence::op(EventKind::ReceiveCallResult)
+                        .root(Root::unit())?
+                        .finish()?,
+                ),
+            });
+        }
+        ImportKind::AssertSignedBy => {
+            require_signature(import, &[ValType::I64], &[])?;
+            Ok(Sequence::op(EventKind::AssertSignedBy)
+                .arg_i64(0)?
+                .finish()?)
+        }
         ImportKind::YieldBegin => build_yield_begin_template(import),
         ImportKind::RegisterMethod => build_register_method_template(import),
-        ImportKind::NewUtxo(constructor) => return build_new_utxo_template(import, constructor),
+        ImportKind::NewUtxo(constructor) => {
+            return build_constructor_template(import, constructor, EventKind::NewUtxo);
+        }
+        ImportKind::Mint(constructor) => {
+            return build_constructor_template(import, constructor, EventKind::Mint);
+        }
         ImportKind::CallMethod(method) => return build_call_method_template(import, method),
         ImportKind::Advice => result_advice_events(import),
         ImportKind::Effect(effect) => return build_effect_template(import, effect),
@@ -1095,9 +1272,10 @@ fn import_result_root(
     })
 }
 
-fn build_new_utxo_template(
+fn build_constructor_template(
     import: &FunctionImport,
     constructor: ConstructorIdentity,
+    kind: EventKind,
 ) -> Result<ImportEvents, TemplateBuildError> {
     if import.results.as_ref() != [ValType::I32] {
         return Err(TemplateBuildError::InvalidConstructorResult {
@@ -1107,13 +1285,13 @@ fn build_new_utxo_template(
         });
     }
 
-    let mut call = Sequence::op(EventKind::NewUtxo);
+    let mut call = Sequence::op(kind);
     for word in constructor.0 {
         call = call.constant_i32(word)?;
     }
     let call = call.root(import_arguments_root(import, 0)?)?.finish()?;
 
-    let mut return_events = Sequence::op(EventKind::ReceiveNewUtxoHandle)
+    let mut return_events = Sequence::op(EventKind::ReceiveNewResourceHandle)
         .map(1, |builder| {
             builder.push(SlotBinding::ResultElem { limb: Limb::Lo })
         })?
@@ -1512,6 +1690,9 @@ pub enum TemplateBuildError {
     )]
     MissingStorageSibling { name: String, sibling: String },
 
+    #[error("token attach export `{0}` must take two handles and return unit")]
+    InvalidAttachExport(String),
+
     #[error("storage export `{name}` has an unexpected signature: {message}")]
     InvalidStorageExport { name: String, message: String },
 
@@ -1874,6 +2055,26 @@ mod tests {
     }
 
     #[test]
+    fn signer_import_records_the_full_key() {
+        let templates = build(
+            r#"(module (import "starstream:std/ledger" "assert-transaction-signed-by" (func (param i64))))"#,
+            &[],
+        );
+        assert_eq!(
+            call(
+                &templates,
+                "starstream:std/ledger",
+                "assert-transaction-signed-by",
+                &[(17, 42)],
+                None
+            ),
+            Trace::new([Step::AssertSignedBy {
+                key: (42 << 32) | 17
+            }])
+        );
+    }
+
+    #[test]
     fn effect_handler_arguments_follow_the_frame_id() {
         let templates = build(
             r#"(module
@@ -1990,7 +2191,7 @@ mod tests {
                         .unwrap(),
                         arguments: flat_value_root(&types, &values),
                     },
-                    Step::ReceiveNewUtxoHandle {
+                    Step::ReceiveNewResourceHandle {
                         resource: Out(ResourceHandle(42)),
                     },
                 ]),
@@ -2032,7 +2233,7 @@ mod tests {
         assert!(matches!(
             try_build(&wasm, &[]),
             Err(TemplateBuildError::CoordinatorAbi { message })
-                if message == "typed UTXO import counter has no external-id"
+                if message == "typed resource import counter has no external-id"
         ));
     }
 
@@ -2053,7 +2254,7 @@ mod tests {
                     constructor: counter_constructor(),
                     arguments: arguments.clone(),
                 },
-                Step::ReceiveNewUtxoHandle {
+                Step::ReceiveNewResourceHandle {
                     resource: Out(ResourceHandle(7)),
                 },
             ])
@@ -2214,6 +2415,27 @@ mod tests {
     }
 
     #[test]
+    fn utxo_get_storage_reads_both_limbs_of_a_direct_i64_result() {
+        let templates = build(
+            r#"(module
+                (func (export "counter#set-storage") (param i32 i64) (result i32) i32.const 0)
+                (func (export "counter#get-storage") (param i32) (result i64) i64.const 0))"#,
+            &[],
+        );
+        assert_eq!(
+            exit(
+                &templates,
+                "counter#get-storage",
+                Some((0x55667788, 0x11223344)),
+                &[]
+            ),
+            Trace::new([Step::GetStorage {
+                storage: Out(flat_value_root(&[ValType::I64], &[0x1122334455667788]))
+            }])
+        );
+    }
+
+    #[test]
     fn storage_exports_commit_the_record_root() {
         let templates = counter();
         let record = [ValType::I32, ValType::I64, ValType::I64];
@@ -2241,9 +2463,10 @@ mod tests {
         assert_eq!(
             enter(&templates, "counter#set-storage", &[1, 20, 0, 30, 0, 3]),
             Trace::new([Step::SetStorage {
+                kind: starstream_interleaving_spec::StorageKind::Utxo,
                 storage,
                 // TODO: review
-                entry_utxo_handle: ResourceHandle(0),
+                entry_handle: ResourceHandle(0),
             }])
         );
     }

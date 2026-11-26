@@ -117,7 +117,7 @@ fn effect_across_calls() -> Trace {
 fn nested_and_repeated_script_calls_run_fresh_instances() {
     let trace = nested_calls();
     for size in [1, 3, 8] {
-        verify_sat_batched(&trace, size).unwrap();
+        verify_sat_batched(&trace, size, &Default::default()).unwrap();
     }
     let normalized = crate::step::normalize(&trace);
     let owners: Vec<_> = normalized
@@ -157,7 +157,7 @@ fn callee_boundaries_are_bound_to_the_caller() {
         trace.0[index] = forged;
         assert!(
             matches!(
-                verify_sat(&trace),
+                verify_sat(&trace, &Default::default()),
                 Err(Error::Unsatisfied(Unsatisfied::Constraint { step, .. })) if step == index
             ),
             "step {index}"
@@ -168,7 +168,10 @@ fn callee_boundaries_are_bound_to_the_caller() {
     for missing in [A_ENTER, B_RECEIVE] {
         let mut trace = nested_calls();
         trace.0.remove(missing);
-        assert!(verify_sat(&trace).is_err(), "step {missing}");
+        assert!(
+            verify_sat(&trace, &Default::default()).is_err(),
+            "step {missing}"
+        );
     }
 }
 
@@ -189,13 +192,13 @@ fn only_coordinators_call_scripts() {
         ret(RESULT_A),
         receive(RESULT_A),
         ret(unit.clone()),
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(0)),
         },
         ret(unit),
     ]);
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             constraint,
             ..
@@ -245,7 +248,7 @@ fn a_script_call_cannot_reenter_an_existing_instance() {
 fn effects_cross_script_boundaries() {
     let trace = effect_across_calls();
     for size in [1, 3, 8] {
-        verify_sat_batched(&trace, size).unwrap();
+        verify_sat_batched(&trace, size, &Default::default()).unwrap();
     }
     let normalized = crate::step::normalize(&trace);
     // The handler runs in the entry coordinator, which owns the scope, and
@@ -261,7 +264,7 @@ fn effects_cross_script_boundaries() {
         let mut trace = effect_across_calls();
         trace.0.insert(ENTRY_STEPS + 4, mutation);
         assert!(matches!(
-            verify_sat(&trace),
+            verify_sat(&trace, &Default::default()),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
                 constraint,
                 ..
@@ -274,7 +277,7 @@ fn effects_cross_script_boundaries() {
         Step::PushEffectHandlerFrame { frame_id: 8 },
     );
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             constraint,
             ..

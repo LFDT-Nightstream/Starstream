@@ -15,7 +15,7 @@
 //!
 //! A constructor identity binds the contract digest, the UTXO export and the
 //! constructor name and its ordered user-parameter types.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sha2::{Digest, Sha256};
 use wasm_encoder::Encode;
@@ -38,11 +38,12 @@ pub(crate) struct CoordinatorAbis {
     /// Constructor parameter signatures keyed by the core interface and field names.
     pub constructor_imports: ConstructorSignatures,
     pub constructor_exports: ConstructorSignatures,
+    pub token_interfaces: BTreeSet<String>,
     pub is_component: bool,
-    /// Digest of this contract, which owns its `starstream:self` UTXOs.
+    /// Digest of this contract for its `starstream:self` constructors.
     pub contract_digest: [u8; 32],
-    /// Contract digests of typed UTXO imports, keyed by UTXO interface name.
-    pub utxo_contracts: BTreeMap<String, [u8; 32]>,
+    /// Contract digests keyed by the full typed UTXO or token import name.
+    pub resource_contracts: BTreeMap<String, [u8; 32]>,
 }
 
 fn error(message: impl Into<String>) -> TemplateBuildError {
@@ -114,21 +115,24 @@ impl CoordinatorAbis {
         for (key, item) in &resolve.worlds[world].imports {
             let name = resolve.name_world_key(key);
             if (name.starts_with("starstream:self/")
-                || name.starts_with(TYPED_UTXO_INTERFACE_PREFIX))
+                || name.starts_with(TYPED_UTXO_INTERFACE_PREFIX)
+                || name.starts_with("starstream:token/"))
                 && let WorldItem::Interface { id, .. } = item
             {
                 abis.constructor_imports
                     .insert(name.clone(), types.signatures(*id, false)?);
             }
-            if let Some(utxo) = name.strip_prefix(TYPED_UTXO_INTERFACE_PREFIX) {
+            if name.starts_with(TYPED_UTXO_INTERFACE_PREFIX)
+                || name.starts_with("starstream:token/")
+            {
                 // A missing id is reported if a constructor of it is imported.
                 if let WorldItem::Interface {
                     external_id: Some(id),
                     ..
                 } = item
                 {
-                    abis.utxo_contracts
-                        .insert(utxo.to_owned(), decode_contract_digest(id)?);
+                    abis.resource_contracts
+                        .insert(name.clone(), decode_contract_digest(id)?);
                 }
                 continue;
             }
@@ -157,6 +161,17 @@ impl CoordinatorAbis {
         for (key, item) in &resolve.worlds[world].exports {
             let name = resolve.name_world_key(key);
             if let WorldItem::Interface { id, .. } = item {
+                let interface = &resolve.interfaces[*id];
+                if let Some(Type::Id(result)) = interface
+                    .functions
+                    .get("set-storage")
+                    .and_then(|f| f.result)
+                    && let TypeDefKind::Handle(wit_parser::Handle::Own(resource)) =
+                        resolve.types[result].kind
+                    && interface.types.get("token") == Some(&resource)
+                {
+                    abis.token_interfaces.insert(name.clone());
+                }
                 abis.constructor_exports
                     .insert(name.clone(), types.signatures(*id, true)?);
             }
@@ -205,10 +220,10 @@ fn type_code(resolve: &Resolve, ty: Type, mode: Signature) -> Result<u8, Templat
 
 /// Whether the canonical ABI represents `ty` by its flat values alone, with
 /// nothing behind a pointer.
-fn by_value(resolve: &Resolve, ty: Type) -> bool {
+pub(super) fn by_value(resolve: &Resolve, ty: Type, allow_handles: bool) -> bool {
     let all = |types: &mut dyn Iterator<Item = Type>| {
         for ty in types {
-            if !by_value(resolve, ty) {
+            if !by_value(resolve, ty, allow_handles) {
                 return false;
             }
         }
@@ -218,13 +233,14 @@ fn by_value(resolve: &Resolve, ty: Type) -> bool {
         return !matches!(ty, Type::String | Type::ErrorContext);
     };
     match &resolve.types[id].kind {
-        TypeDefKind::Type(inner) => by_value(resolve, *inner),
+        TypeDefKind::Type(inner) => by_value(resolve, *inner, allow_handles),
         TypeDefKind::Record(record) => all(&mut record.fields.iter().map(|field| field.ty)),
         TypeDefKind::Tuple(tuple) => all(&mut tuple.types.iter().copied()),
         TypeDefKind::Variant(variant) => all(&mut variant.cases.iter().filter_map(|case| case.ty)),
-        TypeDefKind::Option(inner) => by_value(resolve, *inner),
+        TypeDefKind::Option(inner) => by_value(resolve, *inner, allow_handles),
         TypeDefKind::Result(result) => all(&mut [result.ok, result.err].into_iter().flatten()),
-        TypeDefKind::Flags(_) | TypeDefKind::Enum(_) | TypeDefKind::Handle(_) => true,
+        TypeDefKind::Flags(_) | TypeDefKind::Enum(_) => true,
+        TypeDefKind::Handle(_) => allow_handles,
         _ => false,
     }
 }
@@ -269,7 +285,9 @@ fn identity(
         let types = function.params.iter().map(|param| param.ty);
         if signature.indirect_params
             || signature.retptr
-            || !types.chain(function.result).all(|ty| by_value(resolve, ty))
+            || !types
+                .chain(function.result)
+                .all(|ty| by_value(resolve, ty, true))
         {
             return Err(error(format!(
                 "script export {} passes arguments or its result through memory, which entry events do not commit to yet",

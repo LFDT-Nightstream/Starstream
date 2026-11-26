@@ -23,9 +23,12 @@ mod padding {
             COL_ABI_GENERATION_READ,
             COL_METHOD_APPEND,
             COL_EVENT_ACTIVE,
+            COL_RESOLVER_SECOND_READ,
+            COL_TOKEN_EVENT,
             COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_WRITE,
             COL_ABI_METHOD_COUNT_READ,
+            COL_TOKEN_INTERFACE_WRITE,
             COL_UTXO_EVENT,
             COL_COORD_EVENT,
             COL_ABI_METHOD_COUNT_WRITE,
@@ -128,6 +131,9 @@ pub(crate) fn loaded(
 /// A statement with no inputs or outputs.
 pub(crate) fn empty_statement() -> starstream_interleaving_spec::TransactionStatement {
     starstream_interleaving_spec::TransactionStatement {
+        input_tokens: Vec::new(),
+        output_tokens: Vec::new(),
+        signers: Default::default(),
         entry: ENTRY,
         inputs: vec![],
         outputs: vec![],
@@ -150,7 +156,7 @@ pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -172,7 +178,7 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -205,7 +211,7 @@ fn rejects_receiving_a_constructor_as_a_method() {
         result: StarstreamValue::UNIT_VALUE.into(),
     };
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
             constraint,
@@ -216,16 +222,16 @@ fn rejects_receiving_a_constructor_as_a_method() {
 #[test]
 fn rejects_receiving_a_method_as_a_constructor() {
     let mut trace = method_call_trace(true);
-    trace.0[10] = Step::ReceiveNewUtxoHandle {
+    trace.0[10] = Step::ReceiveNewResourceHandle {
         resource: ResourceHandle(99).into(),
     };
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
             constraint,
             ..
-        })) if constraint == "receive new utxo handle constraints"));
+        })) if constraint == "receive constructor handle constraints"));
 }
 
 fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
@@ -308,7 +314,7 @@ pub(super) fn method_call_trace_with_values(
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -415,7 +421,7 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -563,7 +569,7 @@ fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::PopEffectHandlerFrame,
@@ -576,23 +582,30 @@ fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
 
 #[test]
 fn accepts_utxo_constructor() {
-    verify_sat(&constructor_trace([0, 1, 2, 3])).unwrap();
+    verify_sat(&constructor_trace([0, 1, 2, 3]), &Default::default()).unwrap();
 }
 
 #[test]
 fn accepts_repeated_constructor_arguments() {
-    verify_sat(&constructor_trace([7, 7, 7, 7])).unwrap();
+    verify_sat(&constructor_trace([7, 7, 7, 7]), &Default::default()).unwrap();
 }
 
 #[test]
 fn accepts_minimal_utxo_constructor() {
-    verify_sat(&minimal_constructor_trace([0, 1, 2, 3])).unwrap();
+    verify_sat(
+        &minimal_constructor_trace([0, 1, 2, 3]),
+        &Default::default(),
+    )
+    .unwrap();
 }
 
 #[test]
 fn rejects_nonempty_terminal_call_stack() {
     assert!(matches!(
-        verify_sat(&incomplete_constructor_trace([0, 1, 2, 3])),
+        verify_sat(
+            &incomplete_constructor_trace([0, 1, 2, 3]),
+            &Default::default()
+        ),
         Err(Error::Unsatisfied(
             Unsatisfied::TerminalCallStackNotEmpty { .. }
         ))
@@ -602,7 +615,7 @@ fn rejects_nonempty_terminal_call_stack() {
 #[test]
 fn rejects_opcode_after_terminal_return() {
     assert!(matches!(
-        verify_sat(&opcode_after_terminal_return_trace()),
+        verify_sat(&opcode_after_terminal_return_trace(), &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
             constraint,
@@ -613,7 +626,7 @@ fn rejects_opcode_after_terminal_return() {
 #[test]
 fn rejects_repeated_constructor_entry() {
     assert!(matches!(
-        verify_sat(&repeated_constructor_entry_trace([0, 1, 2, 3])),
+        verify_sat(&repeated_constructor_entry_trace([0, 1, 2, 3]), &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 4,
             constraint,
@@ -623,18 +636,25 @@ fn rejects_repeated_constructor_entry() {
 
 #[test]
 fn accepts_method_call_with_expected_result() {
-    verify_sat(&method_call_trace_with_values(
-        true,
-        vec![1, 2, 3, 4].into(),
-        vec![7, 8].into(),
-        vec![7, 8].into(),
-    ))
+    verify_sat(
+        &method_call_trace_with_values(
+            true,
+            vec![1, 2, 3, 4].into(),
+            vec![7, 8].into(),
+            vec![7, 8].into(),
+        ),
+        &Default::default(),
+    )
     .unwrap();
 }
 
 #[test]
 fn accepts_repeated_method_call_without_resume() {
-    verify_sat(&repeated_method_call_without_resume_trace()).unwrap();
+    verify_sat(
+        &repeated_method_call_without_resume_trace(),
+        &Default::default(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -653,7 +673,7 @@ fn rejects_return_while_method_result_is_pending() {
         ],
     );
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
             constraint,
@@ -664,7 +684,7 @@ fn rejects_return_while_method_result_is_pending() {
 #[test]
 fn rejects_return_while_new_utxo_handle_is_pending() {
     let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
-    let Step::ReceiveNewUtxoHandle { resource } = trace.0[5] else {
+    let Step::ReceiveNewResourceHandle { resource } = trace.0[5] else {
         panic!("constructor trace must receive its handle at step 5");
     };
     trace.0.splice(
@@ -673,11 +693,11 @@ fn rejects_return_while_new_utxo_handle_is_pending() {
             Step::Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
-            Step::ReceiveNewUtxoHandle { resource },
+            Step::ReceiveNewResourceHandle { resource },
         ],
     );
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
             constraint,
@@ -715,7 +735,7 @@ fn rejects_effect_while_method_result_is_pending() {
         ],
     );
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
             constraint,
@@ -727,7 +747,7 @@ fn rejects_effect_while_method_result_is_pending() {
 fn rejects_effect_while_new_utxo_handle_is_pending() {
     let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
     let effect = MethodHash([12, 0, 1, 0, 1, 0, 1, 0]);
-    let Step::ReceiveNewUtxoHandle { resource } = trace.0[5].clone() else {
+    let Step::ReceiveNewResourceHandle { resource } = trace.0[5].clone() else {
         panic!("constructor trace must resume at step 5");
     };
     trace.0.splice(
@@ -749,11 +769,11 @@ fn rejects_effect_while_new_utxo_handle_is_pending() {
             Step::ResumeEffect {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
-            Step::ReceiveNewUtxoHandle { resource },
+            Step::ReceiveNewResourceHandle { resource },
         ],
     );
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
             constraint,
@@ -767,7 +787,7 @@ fn rejects_non_unit_constructor_result() {
     trace.0[4] = Step::Return {
         result: StarstreamValue::from(vec![1]).into(),
     };
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
 }
 
 #[test]
@@ -775,22 +795,26 @@ fn rejects_non_unit_entrypoint_result() {
     let trace = entered([Step::Return {
         result: StarstreamValue::from(vec![1]).into(),
     }]);
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
 }
 
 #[test]
 fn accepts_duplicate_method_registration() {
-    verify_sat(&duplicate_method_registration_trace()).unwrap();
+    verify_sat(&duplicate_method_registration_trace(), &Default::default()).unwrap();
 }
 
 #[test]
 fn accepts_method_replacement_after_yield() {
-    verify_sat(&method_reyield_trace(MethodHash([2, 0, 1, 0, 1, 0, 1, 0]))).unwrap();
+    verify_sat(
+        &method_reyield_trace(MethodHash([2, 0, 1, 0, 1, 0, 1, 0])),
+        &Default::default(),
+    )
+    .unwrap();
 }
 
 #[test]
 fn accepts_nested_effect_handler_reentry() {
-    verify_sat(&nested_effect_trace()).unwrap();
+    verify_sat(&nested_effect_trace(), &Default::default()).unwrap();
 }
 
 #[test]
@@ -816,11 +840,11 @@ fn nested_same_effect_resumes_match_results_by_stack_position() {
             _ => unreachable!(),
         }
     }
-    verify_sat(&trace).unwrap();
+    verify_sat(&trace, &Default::default()).unwrap();
 
     trace.0.swap(base + 5, base + 7);
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint { constraint, .. }))
             if constraint == "caller takes the callee's result"
     ));
@@ -838,7 +862,7 @@ fn rejects_skipping_effect_handler_search() {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
 }
 
 #[test]
@@ -866,7 +890,7 @@ fn rejects_repeating_effect_handler_after_search_is_exhausted() {
         },
     ]);
     assert!(matches!(
-        verify_sat(&entered(steps)),
+        verify_sat(&entered(steps), &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
             constraint,
@@ -896,17 +920,17 @@ fn rejects_resuming_an_unhandled_effect() {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
-    assert!(verify_sat(&entered(steps)).is_err());
+    assert!(verify_sat(&entered(steps), &Default::default()).is_err());
 }
 
 #[test]
 fn accepts_effect_during_constructor_execution_before_registration() {
-    verify_sat(&constructor_effect_trace(false)).unwrap();
+    verify_sat(&constructor_effect_trace(false), &Default::default()).unwrap();
 }
 
 #[test]
 fn rejects_effect_after_registration_starts() {
-    assert!(verify_sat(&constructor_effect_trace(true)).is_err());
+    assert!(verify_sat(&constructor_effect_trace(true), &Default::default()).is_err());
 }
 
 #[test]
@@ -920,7 +944,7 @@ fn rejects_effect_after_resume_signal() {
             arguments: StarstreamValue::UNIT_VALUE,
         },
     );
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
 }
 
 #[test]
@@ -930,7 +954,7 @@ fn rejects_effect_resume_with_wrong_result() {
         unreachable!()
     };
     *result = StarstreamValue::from(vec![99]).into();
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
 }
 
 #[test]
@@ -942,7 +966,7 @@ fn rejects_enter_call_with_wrong_method() {
     };
 
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 8,
             constraint,
@@ -952,7 +976,7 @@ fn rejects_enter_call_with_wrong_method() {
 
 #[test]
 fn rejects_call_to_unregistered_method() {
-    let error = verify_sat(&unregistered_method_call_trace()).unwrap_err();
+    let error = verify_sat(&unregistered_method_call_trace(), &Default::default()).unwrap_err();
 
     assert!(
         matches!(
@@ -969,8 +993,11 @@ fn rejects_call_to_unregistered_method() {
 
 #[test]
 fn rejects_stale_method_after_yield() {
-    let error =
-        verify_sat(&method_reyield_trace(MethodHash([1, 0, 1, 0, 1, 0, 1, 0]))).unwrap_err();
+    let error = verify_sat(
+        &method_reyield_trace(MethodHash([1, 0, 1, 0, 1, 0, 1, 0])),
+        &Default::default(),
+    )
+    .unwrap_err();
 
     assert!(
         matches!(
@@ -994,7 +1021,7 @@ fn rejects_call_through_unbound_resource_handle() {
     *resource = ResourceHandle(1);
 
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
             constraint,
@@ -1010,7 +1037,7 @@ fn rejects_return_with_wrong_result() {
             vec![1, 2, 3, 4].into(),
             vec![7, 8].into(),
             vec![7, 9].into(),
-        )),
+        ), &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
             constraint,
@@ -1021,7 +1048,7 @@ fn rejects_return_with_wrong_result() {
 #[test]
 fn rejects_return_without_entering_method() {
     assert!(matches!(
-        verify_sat(&method_call_trace(false)),
+        verify_sat(&method_call_trace(false), &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 8,
             constraint,
@@ -1042,7 +1069,7 @@ fn rejects_return_before_entering_constructor() {
     ]);
 
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 3,
             constraint,
@@ -1060,7 +1087,7 @@ fn rejects_yield_from_coordinator() {
     ]);
 
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 2,
             constraint,
@@ -1077,7 +1104,7 @@ fn rejects_constructor_with_mismatched_arguments() {
     };
 
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 3,
             constraint,
@@ -1094,7 +1121,7 @@ fn rejects_constructor_with_mismatched_identity() {
     };
 
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 3,
             constraint,
@@ -1264,7 +1291,7 @@ fn effect_skip_accepts_dynamic_ids_and_preserves_pending_arguments() {
             assert_eq!(raise[column], skip[column]);
         }
         assert!(matches!(
-            verify_sat(&trace),
+            verify_sat(&trace, &Default::default()),
             Err(Error::Unsatisfied(
                 Unsatisfied::TerminalCallStackNotEmpty { .. }
             ))

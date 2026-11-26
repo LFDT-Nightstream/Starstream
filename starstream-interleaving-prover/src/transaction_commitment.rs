@@ -1,7 +1,7 @@
-//! Transaction-only chain: inputs/preloads, entry call, UTXO outputs/ABIs, coordinators, finish.
+//! Transaction-only chain: inputs/preloads, entry call, UTXO outputs/ABIs, token outputs, coordinators, finish.
 //! Records have distinct tags and fixed lengths, padded to eight-field blocks.
 //! Roots are transaction data, not persistent ledger storage. ABI duplicates stay.
-//! The proving API binds initial zero and the expected final digest.
+//! The proving API binds the expected final digest.
 //! Nebula binds memory consistency and the verifier-owned initial memory image.
 use neo_math::F;
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
@@ -21,12 +21,13 @@ const CONSUMED: u64 = RECORD_PREFIX | 5;
 const COORDINATOR: u64 = RECORD_PREFIX | 6;
 const FINISH: u64 = RECORD_PREFIX | 7;
 const ENTRY: u64 = RECORD_PREFIX | 8;
+const OUTPUT_TOKEN: u64 = RECORD_PREFIX | 9;
 
 pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
     let (tag, columns): (_, Vec<usize>) = match op {
         Opcode::SetStorage => (
             INPUT,
-            std::iter::once(COL_BOUNDARY_UTXO)
+            std::iter::once(COL_BOUNDARY_COROUTINE_ID)
                 .chain(COL_ARGUMENT_ROOT)
                 .collect(),
         ),
@@ -40,7 +41,15 @@ pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
         ),
         Opcode::GetStorage => (
             OUTPUT,
-            std::iter::once(COL_BOUNDARY_UTXO)
+            std::iter::once(COL_BOUNDARY_COROUTINE_ID)
+                .chain(COL_RESULT_ROOT)
+                .chain(COL_OUT)
+                .collect(),
+        ),
+        Opcode::GetTokenStorage => (
+            OUTPUT_TOKEN,
+            [COL_BOUNDARY_COROUTINE_ID, COL_OUTPUT_TOKEN_OWNER]
+                .into_iter()
                 .chain(COL_RESULT_ROOT)
                 .chain(COL_OUT)
                 .collect(),
@@ -48,7 +57,9 @@ pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
         Opcode::ReadAbi => (OUTPUT_METHOD, COL_METHOD_HASH_VALUE.to_vec()),
         Opcode::SkipConsumed => (
             CONSUMED,
-            std::iter::once(COL_BOUNDARY_UTXO).chain(COL_IN).collect(),
+            std::iter::once(COL_BOUNDARY_COROUTINE_ID)
+                .chain(COL_IN)
+                .collect(),
         ),
         Opcode::FinalizeCoordinator => (
             COORDINATOR,
@@ -72,8 +83,8 @@ fn absorb(mut chain: [F; 4], words: &[F]) -> [F; 4] {
 }
 
 /// Compute the verifier's transaction digest from ledger inputs, the entry
-/// script call, and proposed outputs/instance roots. All allocated UTXOs (including consumed ones) and
-/// coordinators must be represented, each as a contiguous range: UTXOs from 0, coordinators from
+/// script call, and proposed outputs/instance roots. All allocated UTXOs (including consumed ones),
+/// tokens and coordinators must be represented, each as a contiguous range: UTXOs and tokens from 0, coordinators from
 /// Coord(1), the entry script. Coord(0) is the transaction context and has no trace.
 pub fn transaction_commitment(
     statement: &TransactionStatement,
@@ -92,12 +103,20 @@ pub fn transaction_commitment(
             })
             .collect()
     };
+    crate::transaction::check_token_records(statement)?;
+    for &packed in roots.keys() {
+        match CoroutineId::from_packed(packed) {
+            Some(CoroutineId::Token(i)) if (i as usize) < statement.output_tokens.len() => {}
+            Some(CoroutineId::Coord(_) | CoroutineId::Utxo(_)) => {}
+            _ => return Err(reject()),
+        }
+    }
     let coordinators =
         roots
             .iter()
             .filter_map(|(&packed, root)| match CoroutineId::from_packed(packed) {
-                id @ CoroutineId::Coord(_) => Some((id, root)),
-                CoroutineId::Utxo(_) => None,
+                Some(id @ CoroutineId::Coord(_)) => Some((id, root)),
+                _ => None,
             });
     // The map iterates in packed-id order, which is allocation order.
     let mut ids = coordinators.clone().map(|(id, _)| id).peekable();
@@ -133,6 +152,16 @@ pub fn transaction_commitment(
             );
         }
     }
+    for (index, input) in statement.input_tokens.iter().enumerate() {
+        let id = CoroutineId::Token(u32::try_from(index).map_err(|_| reject())?);
+        let packed = id.checked_encoded().ok_or_else(reject)?;
+        record(
+            INPUT,
+            std::iter::once(F::from_u32(packed))
+                .chain(canonical(&input.storage.0)?)
+                .collect(),
+        );
+    }
     record(
         ENTRY,
         statement
@@ -149,8 +178,8 @@ pub fn transaction_commitment(
     let utxos = roots
         .iter()
         .filter_map(|(&packed, root)| match CoroutineId::from_packed(packed) {
-            CoroutineId::Utxo(id) => Some((id, root)),
-            CoroutineId::Coord(_) => None,
+            Some(CoroutineId::Utxo(id)) => Some((id, root)),
+            _ => None,
         });
     for (id, root) in utxos {
         if u64::from(id) != next_utxo {
@@ -187,6 +216,23 @@ pub fn transaction_commitment(
     if outputs.next().is_some() || statement.inputs.len() as u64 > next_utxo {
         return Err(reject());
     }
+    for output in &statement.output_tokens {
+        let token = CoroutineId::Token(output.token)
+            .checked_encoded()
+            .ok_or_else(reject)?;
+        let owner = CoroutineId::Utxo(output.owner)
+            .checked_encoded()
+            .ok_or_else(reject)?;
+        let root = roots.get(&token).ok_or_else(reject)?;
+        record(
+            OUTPUT_TOKEN,
+            [F::from_u32(token), F::from_u32(owner)]
+                .into_iter()
+                .chain(canonical(&output.storage.0)?)
+                .chain(canonical(root)?)
+                .collect(),
+        );
+    }
     for (id, root) in coordinators {
         record(
             COORDINATOR,
@@ -211,6 +257,9 @@ mod tests {
         // The entry record spans two blocks: tag and seven script limbs, then
         // the last limb and the argument root.
         let statement = TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: starstream_interleaving_spec::EntryCall {
                 script: MethodHash([1, 2, 3, 4, 5, 6, 7, 8]),
                 arguments: StarstreamValue([21, 22, 23, 24]),
@@ -228,7 +277,7 @@ mod tests {
         );
         let chain = neo_application::event_commitment::commit_block(
             chain,
-            [COORDINATOR, 2, 11, 12, 13, 14, 0, 0].map(F::new),
+            [COORDINATOR, 4, 11, 12, 13, 14, 0, 0].map(F::new),
         );
         let expected = neo_application::event_commitment::commit_block(
             chain,
@@ -249,6 +298,9 @@ mod tests {
             methods,
         };
         let statement = TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: starstream_interleaving_spec::EntryCall {
                 script: a,
                 arguments: StarstreamValue::UNIT_VALUE,
@@ -261,11 +313,15 @@ mod tests {
             }],
         };
         // UTXO 1 is consumed but its root must still contribute.
-        let roots = TraceCommitments::from([(1, [1; 4]), (2, [2; 4]), (3, [3; 4])]);
+        let roots = TraceCommitments::from([
+            (CoroutineId::Utxo(0).encoded(), [1; 4]),
+            (CoroutineId::Coord(1).encoded(), [2; 4]),
+            (CoroutineId::Utxo(1).encoded(), [3; 4]),
+        ]);
         let digest = transaction_commitment(&statement, &roots).unwrap();
-        for id in [1, 2, 3] {
+        for id in roots.keys() {
             let mut changed = roots.clone();
-            changed.get_mut(&id).unwrap()[0] += 1;
+            changed.get_mut(id).unwrap()[0] += 1;
             assert_ne!(
                 digest,
                 transaction_commitment(&statement, &changed).unwrap()
@@ -312,6 +368,11 @@ mod tests {
         for id in [CoroutineId::Coord(0), CoroutineId::Coord(3)] {
             let mut changed = roots.clone();
             changed.insert(id.encoded(), [0; 4]);
+            assert!(transaction_commitment(&statement, &changed).is_err());
+        }
+        for packed in [CoroutineId::Token(0).encoded(), 3] {
+            let mut changed = roots.clone();
+            changed.insert(packed, [0; 4]);
             assert!(transaction_commitment(&statement, &changed).is_err());
         }
         called.remove(&CoroutineId::Coord(1).encoded());

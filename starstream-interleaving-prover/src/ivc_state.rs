@@ -23,7 +23,7 @@ pub(crate) enum CurrPhase {
     EffectHandlerPending = 0b1110,
     EffectResumePending = 0b1111,
     CallResultPending = 0b1000,
-    NewUtxoHandlePending = 0b1001,
+    NewResourceHandlePending = 0b1001,
 }
 
 impl CurrPhase {
@@ -43,14 +43,15 @@ pub(crate) enum TxPhase {
 
 /// Packed circuit refinement of Quint's tagged `CoroutineId` union.
 ///
-/// The low bit is the kind tag, leaving the remaining bits for the local ID:
-/// `Coord(i) = 2*i` and `Utxo(i) = 2*i + 1`.
+/// The low two bits encode the kind (coordinator 0, UTXO 1, token 2).
+/// The upper 30 bits hold the transaction-local index.
 // TODO: Bind the payloads to the transaction's coordinator/UTXO domains once
 // those counts become part of the circuit instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CoroutineId {
     Coord(u32),
     Utxo(u32),
+    Token(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +59,7 @@ pub enum CoroutineId {
 pub(crate) enum CoroutineKind {
     Coord = 0,
     Utxo = 1,
+    Token = 2,
 }
 
 impl CoroutineKind {
@@ -67,28 +69,32 @@ impl CoroutineKind {
 }
 
 impl CoroutineId {
-    pub(crate) fn from_packed(packed: u32) -> Self {
-        let id = packed / 2;
-        if packed & 1 == CoroutineKind::Coord.tag() {
-            Self::Coord(id)
-        } else {
-            Self::Utxo(id)
+    /// Decode a local index and its kind, rejecting the reserved tag.
+    pub fn from_packed(packed: u32) -> Option<Self> {
+        let id = packed >> 2;
+        match packed & 3 {
+            0 => Some(Self::Coord(id)),
+            1 => Some(Self::Utxo(id)),
+            2 => Some(Self::Token(id)),
+            _ => None,
         }
     }
 
-    /// Pack the kind tag and local ID. Panics if the ID exceeds 31 bits.
+    /// Pack the kind tag and local ID. Panics if the ID exceeds 30 bits.
     pub fn encoded(self) -> u32 {
         self.checked_encoded()
             .expect("coroutine ID fits the packed u32 encoding")
     }
 
-    pub(crate) fn checked_encoded(self) -> Option<u32> {
+    /// Returns the packed ID if the local index fits in 30 bits.
+    pub fn checked_encoded(self) -> Option<u32> {
         let (id, kind) = match self {
             Self::Coord(id) => (id, CoroutineKind::Coord),
             Self::Utxo(id) => (id, CoroutineKind::Utxo),
+            Self::Token(id) => (id, CoroutineKind::Token),
         };
 
-        id.checked_mul(2).and_then(|id| id.checked_add(kind.tag()))
+        id.checked_mul(4).and_then(|id| id.checked_add(kind.tag()))
     }
 
     pub(crate) fn field(self) -> F {
@@ -96,7 +102,7 @@ impl CoroutineId {
     }
 
     pub(crate) fn local_index(self) -> F {
-        let (Self::Coord(id) | Self::Utxo(id)) = self;
+        let (Self::Coord(id) | Self::Utxo(id) | Self::Token(id)) = self;
         F::new(u64::from(id))
     }
 }
@@ -158,9 +164,9 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
         ContinuityGroup {
             name: "call_handoff",
             role: "argument, method and result that a call, return or handler exit hands to the next step",
-            links: COL_PENDING_ROOT_AFTER
+            links: COL_PENDING_VALUE_AFTER
                 .into_iter()
-                .zip(COL_PENDING_ROOT_BEFORE)
+                .zip(COL_PENDING_VALUE_BEFORE)
                 .chain(
                     COL_PENDING_METHOD_AFTER
                         .into_iter()
@@ -173,6 +179,11 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
             name: "call_stack_pointer_continuity",
             role: "row[i].COL_CALL_SP_AFTER must match row[i+1].COL_CALL_SP_BEFORE",
             links: vec![link(COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE)],
+        },
+        ContinuityGroup {
+            name: "next_token_id_continuity",
+            role: "token allocator carries across adjacent rows",
+            links: vec![link(COL_NEXT_TOKEN_ID_AFTER, COL_NEXT_TOKEN_ID_BEFORE)],
         },
         ContinuityGroup {
             name: "next_utxo_id_continuity",
@@ -201,22 +212,27 @@ mod tests {
 
     #[test]
     fn checked_encoding_preserves_tags_and_rejects_overflow() {
-        let max_id = u32::MAX / 2;
+        let max_id = u32::MAX / 4;
         for (id, packed) in [
             (CoroutineId::Coord(0), 0),
             (CoroutineId::Utxo(0), 1),
-            (CoroutineId::Coord(1), 2),
-            (CoroutineId::Utxo(1), 3),
-            (CoroutineId::Coord(max_id), u32::MAX - 1),
-            (CoroutineId::Utxo(max_id), u32::MAX),
+            (CoroutineId::Token(0), 2),
+            (CoroutineId::Coord(1), 4),
+            (CoroutineId::Utxo(1), 5),
+            (CoroutineId::Token(1), 6),
+            (CoroutineId::Coord(max_id), u32::MAX - 3),
+            (CoroutineId::Utxo(max_id), u32::MAX - 2),
+            (CoroutineId::Token(max_id), u32::MAX - 1),
         ] {
             assert_eq!(id.checked_encoded(), Some(packed));
             assert_eq!(id.encoded(), packed);
-            assert_eq!(CoroutineId::from_packed(packed), id);
+            assert_eq!(CoroutineId::from_packed(packed), Some(id));
         }
+        assert_eq!(CoroutineId::from_packed(u32::MAX), None);
         for id in [max_id + 1, u32::MAX] {
             assert_eq!(CoroutineId::Coord(id).checked_encoded(), None);
             assert_eq!(CoroutineId::Utxo(id).checked_encoded(), None);
+            assert_eq!(CoroutineId::Token(id).checked_encoded(), None);
         }
     }
 }

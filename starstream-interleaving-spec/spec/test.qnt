@@ -17,6 +17,50 @@ module replay_trace {
     List({ storage: UNIT_VALUE, methods: List(method) }),
     List({ utxo: 0, storage: UNIT_VALUE, methods: List(method) })) }
 
+  run test_token_load_binds_root_handle = init_transaction
+    .then({ state' = { input_tokens: List({owner: 0, storage: UNIT_VALUE}), ...state } })
+    .then(set_storage(UNIT_VALUE, 7))
+    .then(preload_method(method))
+    .then(set_token_storage(UNIT_VALUE, 8, 0))
+    .then(all {
+      assert(state.resource_resolver.get({holder: ENTRY_COORDINATOR, handle: 7}) == Utxo(0)),
+      assert(state.resource_resolver.get({holder: ENTRY_COORDINATOR, handle: 8}) == Token(0)),
+      state' = state,
+    })
+
+  run detached_payment = fresh
+    .then(set_token_storage(UNIT_VALUE, 8, 3))
+    .then(enter_root)
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
+    .then(register_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_resource_handle({ value: 7 }))
+    .then(upcast(7, 9))
+    .then(attach(8, 9))
+
+  run test_attach_binds_owner_across_callback = detached_payment
+    .then(enter_attach(42, 3))
+    .then(all {
+      assert(state.token_owners.get(Token(0)) == Utxo(0)),
+      assert(state.resource_resolver.get({holder: Token(0), handle: 42}) == Utxo(0)),
+      state' = state,
+    })
+    .then(return({value: UNIT_VALUE}))
+    .then(receive_call_result({value: UNIT_VALUE}))
+    .then(attach(8, 9).fail())
+
+  run test_attach_rejects_a_different_token_interface = detached_payment
+    .then(enter_attach(42, 4).fail())
+
+  run test_attach_requires_detach_for_a_ledger_input = init_transaction
+    .then({ state' = {input_tokens: List({owner: 0, storage: UNIT_VALUE}), ...state} })
+    .then(set_storage(UNIT_VALUE, 7))
+    .then(preload_method(method))
+    .then(set_token_storage(UNIT_VALUE, 8, 3))
+    .then(enter_root)
+    .then(attach(8, 7).fail())
+
   run test_storage_roundtrip = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
@@ -27,6 +71,64 @@ module replay_trace {
     .then(finalize_coordinator)
     .then(finish_transaction)
     .then(transaction_complete)
+
+  run before_token_getter = init_transaction
+    .then({ state' = {
+      input_tokens: List({owner: 0, storage: UNIT_VALUE}),
+      output_tokens: List({token: 0, owner: 0, storage: UNIT_VALUE}), ...state } })
+    .then(set_storage(UNIT_VALUE, 7))
+    .then(preload_method(method))
+    .then(set_token_storage(UNIT_VALUE, 8, 3))
+    .then(enter_root)
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(method))
+
+  run test_mint_after_input_token = init_transaction
+    .then({ state' = {
+      input_tokens: List({owner: 0, storage: UNIT_VALUE}),
+      output_tokens: List({token: 0, owner: 0, storage: UNIT_VALUE},
+                          {token: 1, owner: 0, storage: UNIT_VALUE}), ...state } })
+    .then(set_storage(UNIT_VALUE, 7))
+    .then(preload_method(method))
+    .then(set_token_storage(UNIT_VALUE, 8, 3))
+    .then(enter_root)
+    .then(mint(CTOR, UNIT_VALUE))
+    .then(enter_mint(CTOR, UNIT_VALUE, 5))
+    .then(return({value: UNIT_VALUE}))
+    .then(receive_new_resource_handle({value: 9}))
+    .then(attach(9, 7))
+    .then(enter_attach(42, 5))
+    .then(return({value: UNIT_VALUE}))
+    .then(receive_call_result({value: UNIT_VALUE}))
+    .then(return({value: UNIT_VALUE}))
+    .then(get_storage({value: UNIT_VALUE}))
+    .then(read_abi(method))
+    .then(get_token_storage(3, {value: UNIT_VALUE}))
+    .then(get_token_storage(5, {value: UNIT_VALUE}))
+    .then(finalize_coordinator)
+    .then(finish_transaction)
+    .then(transaction_complete)
+
+  run test_token_getter_finalizes_attached_token = before_token_getter
+    .then(get_token_storage(3, { value: UNIT_VALUE }))
+    .then(finalize_coordinator)
+    .then(finish_transaction)
+    .then(transaction_complete)
+
+  run test_token_getter_rejects_missing_owner = before_token_getter
+    .then({ state' = { token_owners: Map(), ...state } })
+    .then(get_token_storage(3, { value: UNIT_VALUE }).fail())
+
+  run test_token_getter_rejects_wrong_owner = before_token_getter
+    .then({ state' = { output_tokens: List({token: 0, owner: 1, storage: UNIT_VALUE}), ...state } })
+    .then(get_token_storage(3, { value: UNIT_VALUE }).fail())
+
+  run test_token_getter_rejects_wrong_interface = before_token_getter
+    .then(get_token_storage(4, { value: UNIT_VALUE }).fail())
+
+  run test_token_getter_rejects_wrong_storage = before_token_getter
+    .then(get_token_storage(3, { value: List(1, 0, 0, 0) }).fail())
 
   action check_abi_count: bool = all {
     assert(abi_method_count_matches_registrations),
@@ -39,11 +141,11 @@ module replay_trace {
     .then(new_utxo(CTOR, UNIT_VALUE))
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(new_utxo(CTOR, UNIT_VALUE))
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }).fail())
+    .then(receive_new_resource_handle({ value: 0 }).fail())
 
   run test_constructor_cannot_rebind_input = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
@@ -52,7 +154,7 @@ module replay_trace {
     .then(new_utxo(CTOR, UNIT_VALUE))
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }).fail())
+    .then(receive_new_resource_handle({ value: 0 }).fail())
 
   run test_input_cannot_rebind_input = {
     val input = { storage: UNIT_VALUE, methods: List(method) }
@@ -361,7 +463,7 @@ module replay_trace {
     .then(new_utxo(CTOR, List(-FIELD_HALF, FIELD_HALF, -1, 0)))
     .then(enter_constructor(CTOR, List(-FIELD_HALF, FIELD_HALF, -1, 0)))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
@@ -378,7 +480,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
@@ -403,7 +505,7 @@ module replay_trace {
     .then(new_utxo(CTOR, List(42, 0, 0, 0)))
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(new_utxo(CTOR, List(7, 0, 0, 0)))
     .fail()
@@ -418,7 +520,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_call(method, List(42, 0, 0, 0)))
     .then(return({ value: List(7, 8, 0, 0) }))
@@ -438,7 +540,7 @@ module replay_trace {
     .then(resume_effect({ value: UNIT_VALUE }))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(pop_effect_handler_frame)
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
@@ -455,7 +557,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, UNIT_VALUE))
     .then(enter_call(method, UNIT_VALUE))
     .then(yield_begin)
@@ -469,7 +571,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_call(method, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
@@ -486,7 +588,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, UNIT_VALUE))
     .then(enter_call(method, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
@@ -498,7 +600,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, UNIT_VALUE))
     .then(enter_call(method, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
@@ -535,7 +637,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_call(method, List(42, 0, 0, 0)))
     .then(enter_call(method, List(42, 0, 0, 0)))
@@ -547,7 +649,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_call(other_method, List(42, 0, 0, 0)))
     .fail()
@@ -558,7 +660,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, other_method, List(42, 0, 0, 0)))
     .fail()
 
@@ -568,12 +670,12 @@ module replay_trace {
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(new_utxo(CTOR, UNIT_VALUE))
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 1 }))
+    .then(receive_new_resource_handle({ value: 1 }))
     .then(call_method(1, method, UNIT_VALUE))
     .fail()
 
@@ -583,12 +685,12 @@ module replay_trace {
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(new_utxo(CTOR, UNIT_VALUE))
     .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 1 }))
+    .then(receive_new_resource_handle({ value: 1 }))
     .then(call_method(0, method, UNIT_VALUE))
     .then(enter_call(method, UNIT_VALUE))
     .then(yield_begin)
@@ -609,7 +711,7 @@ module replay_trace {
     .then(register_method(method))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
@@ -619,7 +721,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_call(method, List(42, 0, 0, 0)))
     .then(yield_begin)
@@ -635,7 +737,7 @@ module replay_trace {
     .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(receive_new_resource_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_call(method, List(42, 0, 0, 0)))
     .then(return({ value: List(7, 9, 0, 0) }))

@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::METHOD_WORDS;
@@ -117,6 +119,18 @@ impl From<Vec<u32>> for StarstreamValue {
     }
 }
 
+/// The resource whose storage is restored by a set-storage boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageKind {
+    Utxo,
+    /// Index of the token interface in this component's sorted token exports.
+    /// Binds callbacks to the type restored by this setter.
+    Token {
+        interface: u32,
+    },
+}
+
 /// A single observable transition of an execution, as attributed to the
 /// coroutine that produced it.
 ///
@@ -126,11 +140,15 @@ impl From<Vec<u32>> for StarstreamValue {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Step {
+    AssertSignedBy {
+        key: u64,
+    },
     SetStorage {
+        kind: StorageKind,
         storage: StarstreamValue,
         /// Host-supplied Coord(1)-local binding, not a wasm return value.
         /// Excluded from both the program event and transaction IO commitments.
-        entry_utxo_handle: ResourceHandle,
+        entry_handle: ResourceHandle,
     },
     /// Ledger-supplied ABI entry for the most recently loaded UTXO; no program event.
     PreloadMethod {
@@ -139,13 +157,17 @@ pub enum Step {
     GetStorage {
         storage: Out<StarstreamValue>,
     },
+    GetTokenStorage {
+        interface: u32,
+        storage: Out<StarstreamValue>,
+    },
     /// Host-synthesized enumeration of the last exported UTXO's ABI; no program event.
     ReadAbi {
         method: MethodSelector,
     },
     /// Advance the finalization scan without exporting a consumed UTXO.
     SkipConsumed,
-    /// Enumerate the next coordinator's final trace root after all UTXOs; no program event.
+    /// Enumerate the next coordinator's final trace root after all UTXOs and tokens; no program event.
     FinalizeCoordinator,
     FinishTransaction,
     /// Host-synthesized call from the transaction context into the entry
@@ -167,7 +189,16 @@ pub enum Step {
         constructor: ConstructorIdentity,
         arguments: StarstreamValue,
     },
-    ReceiveNewUtxoHandle {
+    Mint {
+        constructor: ConstructorIdentity,
+        arguments: StarstreamValue,
+    },
+    EnterMint {
+        constructor: ConstructorIdentity,
+        arguments: StarstreamValue,
+        interface: u32,
+    },
+    ReceiveNewResourceHandle {
         resource: Out<ResourceHandle>,
     },
     EnterConstructor {
@@ -180,6 +211,21 @@ pub enum Step {
     },
     Return {
         result: Out<StarstreamValue>,
+    },
+    /// A typed handle is upcast to a fresh builtin handle for the same resource.
+    Upcast {
+        source: ResourceHandle,
+        result: Out<ResourceHandle>,
+    },
+    /// Caller-local handles passed to the builtin attach import.
+    Attach {
+        token: ResourceHandle,
+        destination: ResourceHandle,
+    },
+    /// The destination handle as lowered in the token callback's instance.
+    EnterAttach {
+        interface: u32,
+        destination: ResourceHandle,
     },
     CallMethod {
         resource: ResourceHandle,
@@ -253,6 +299,22 @@ pub struct OutputUtxo {
     pub methods: Vec<MethodSelector>,
 }
 
+/// A transaction-relevant token, numbered by position in the input token list.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputToken {
+    /// Transaction-local ID of the UTXO holding this token.
+    pub owner: u32,
+    pub storage: StarstreamValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputToken {
+    /// Transaction-local token ID. Input tokens retain their index; minted tokens follow in allocation order.
+    pub token: u32,
+    pub owner: u32,
+    pub storage: StarstreamValue,
+}
+
 /// The script the transaction runs, and its (opaque) argument root.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryCall {
@@ -263,6 +325,12 @@ pub struct EntryCall {
 /// Inputs receive consecutive UTXO IDs; outputs are ordered by surviving ID.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransactionStatement {
+    /// Only tokens relevant to this transaction appear here.
+    pub input_tokens: Vec<InputToken>,
+    /// Ordered by transaction-local token ID.
+    pub output_tokens: Vec<OutputToken>,
+    /// Public signer IDs whose signatures the verifier requires on this transaction.
+    pub signers: BTreeSet<u64>,
     pub entry: EntryCall,
     pub inputs: Vec<InputUtxo>,
     pub outputs: Vec<OutputUtxo>,

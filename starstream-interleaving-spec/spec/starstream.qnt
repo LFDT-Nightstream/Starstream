@@ -29,7 +29,7 @@ module starstream {
   type ConstructorIdentity = EventIdentity
   type ScriptIdentity = EventIdentity
   type EffectIdentity = EventIdentity
-  type CoroutineId = Coord(int) | Utxo(int)
+  type CoroutineId = Coord(int) | Utxo(int) | Token(int)
   pure val ENTRY_COORDINATOR = Coord(1)
 
   type ResourceKey = {
@@ -47,7 +47,7 @@ module starstream {
     | EffectHandlerExecuting
     | EffectResumePending
     | CallResultPending
-    | NewUtxoHandlePending
+    | NewResourceHandlePending
 
   type CallFrameKind = ProgramCall | ConstructorCall | EffectCall
 
@@ -78,6 +78,8 @@ module starstream {
     methods: List[MethodSelector]
   }
   type OutputUtxo = { utxo: int, storage: StarstreamValue, methods: List[MethodSelector] }
+  type InputToken = { owner: int, storage: StarstreamValue }
+  type OutputToken = { token: int, owner: int, storage: StarstreamValue }
   type EntryCall = { script: ScriptIdentity, arguments: StarstreamValue }
 
   // just a tagged type so that the action signature reflects what's input and
@@ -88,6 +90,9 @@ module starstream {
     tx_phase: TxPhase,
     // The entry script call of the statement; execution-only replay has none.
     tx_entry: Option[EntryCall],
+    tx_signers: Set[int],
+    input_tokens: List[InputToken],
+    output_tokens: List[OutputToken],
     tx_inputs: List[InputUtxo],
     // Initial preload sequences, framed per input and unchanged by execution.
     loaded_input_methods: List[List[MethodSelector]],
@@ -111,6 +116,7 @@ module starstream {
     instance_stack: List[CoroutineId],
     curr_cid_phase: CurrPhase,
     utxo_lifecycle: CoroutineId -> UtxoLifecycle,
+    next_token_id: int,
     next_utxo_id: int,
     enabled_methods: CoroutineId -> Set[MethodSelector],
     // Current-generation registrations, including duplicates (maximum 255).
@@ -119,11 +125,9 @@ module starstream {
     abi_registrations: CoroutineId -> List[MethodSelector],
     abi_read_remaining: int,
     abi_read_ordinal: int,
-    // ResourceKey is an instance(coroutine)-dependent id
-    //
-    // this maps from local handles to instances
-    //
-    // this map is not injective
+    token_interfaces: CoroutineId -> int,
+    token_owners: CoroutineId -> CoroutineId,
+    // Each handle is local to its holder. Multiple handles can resolve to the same coroutine.
     resource_resolver: ResourceKey -> CoroutineId,
   }
 
@@ -131,7 +135,7 @@ module starstream {
 
   type Opcode =
       NewUtxo
-    | ReceiveNewUtxoHandle
+    | ReceiveNewResourceHandle
     | EnterConstructor
     | CallCoordinator
     | CallMethod
@@ -139,6 +143,8 @@ module starstream {
     | EnterCall
     | RaiseEffect
     | PushEffectHandlerFrame
+    | AssertSignedBy
+    | Upcast
     | AddEffectHandler
     | PopEffectHandlerFrame
     | SkipEffectHandler
@@ -155,9 +161,14 @@ module starstream {
     // begin_execution pushes the entry frame, so an empty call stack is a
     // termination condition
     state.call_stack.length() > 0,
+    // Opcodes supported in the token handlers.
+    match state.curr {
+      | Token(_) => Set(EnterConstructor, EnterCall, Upcast, AssertSignedBy, Return).contains(op)
+      | _ => true
+    },
     match op {
       | NewUtxo => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
-      | ReceiveNewUtxoHandle => state.curr_cid_phase == NewUtxoHandlePending
+      | ReceiveNewResourceHandle => state.curr_cid_phase == NewResourceHandlePending
       | EnterConstructor => state.curr_cid_phase == CtorEnterPending
       | CallCoordinator => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
       | CallMethod => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
@@ -179,6 +190,8 @@ module starstream {
           state.curr_cid_phase == ConstructorExecuting or
           state.curr_cid_phase == EffectHandlerExecuting
       | PushEffectHandlerFrame => guest_executing
+      | Upcast => guest_executing
+      | AssertSignedBy => guest_executing
       | AddEffectHandler => guest_executing
       | PopEffectHandlerFrame => guest_executing
       | SkipEffectHandler => state.curr_cid_phase == EffectHandlerPending
@@ -200,10 +213,15 @@ module starstream {
     match cid {
       | Utxo(_) => true
       | Coord(_) => false
+      | Token(_) => false
     }
 
   pure def is_coord(cid: CoroutineId): bool =
-    not(is_utxo(cid))
+    match cid {
+      | Coord(_) => true
+      | Utxo(_) => false
+      | Token(_) => false
+    }
 
   pure def is_valid(value: StarstreamValue): bool =
     value.length() == 4 and
@@ -218,6 +236,9 @@ module starstream {
   pure def new_tx(): State = {
     tx_phase: Loading,
     tx_entry: None,
+    tx_signers: Set(),
+    input_tokens: List(),
+    output_tokens: List(),
     tx_inputs: List(),
     loaded_input_methods: List(),
     tx_outputs: List(),
@@ -233,12 +254,15 @@ module starstream {
     call_stack: List(),
     curr_cid_phase: Executing,
     utxo_lifecycle: Map(),
+    next_token_id: 0,
     next_utxo_id: 0,
     enabled_methods: Map(),
     abi_method_count: Map(),
     abi_registrations: Map(),
     abi_read_remaining: 0,
     abi_read_ordinal: 0,
+    token_interfaces: Map(),
+    token_owners: Map(),
     resource_resolver: Map(),
   }
 
@@ -255,6 +279,7 @@ module starstream {
   // TODO: Replace with resource translation of the entry arguments.
   action set_storage(storage: StarstreamValue, entry_utxo_handle: ResourceHandle): bool = all {
     state.tx_phase == Loading,
+    state.next_token_id == 0,
     not(state.resource_resolver.keys().contains({ holder: ENTRY_COORDINATOR, handle: entry_utxo_handle })),
     last_input_has_abi,
     state.next_utxo_id < state.tx_inputs.length(),
@@ -279,9 +304,34 @@ module starstream {
     }
   }
 
+  action set_token_storage(storage: StarstreamValue, handle: ResourceHandle, interface_id: int): bool = all {
+    state.tx_phase == Loading,
+    storage.is_valid(),
+    match state.tx_entry {
+      | None => true // Execution-only fixtures may supply a detached token.
+      | Some(_) => state.next_token_id < state.input_tokens.length() and
+                   storage == state.input_tokens[state.next_token_id].storage
+    },
+    val key = {holder: ENTRY_COORDINATOR, handle: handle}
+    all {
+      not(state.resource_resolver.keys().contains(key)),
+      state' = {
+        next_token_id: state.next_token_id + 1,
+        resource_resolver: state.resource_resolver.put(key, Token(state.next_token_id)),
+        token_interfaces: state.token_interfaces.put(Token(state.next_token_id), interface_id),
+        token_owners: match state.tx_entry {
+          | None => state.token_owners
+          | Some(_) => state.token_owners.put(Token(state.next_token_id), Utxo(state.input_tokens[state.next_token_id].owner))
+        },
+        ...state
+      }
+    }
+  }
+
   // Host-synthesized from the input's stored ABI, not emitted by wasm.
   action preload_method(method: MethodSelector): bool = all {
     state.tx_phase == Loading,
+    state.next_token_id == 0,
     state.next_utxo_id > 0,
     state.abi_method_count.get(Utxo(state.next_utxo_id - 1)) < 255,
     state' = {
@@ -302,6 +352,7 @@ module starstream {
   def inputs_loaded: bool = all {
     last_input_has_abi,
     state.next_utxo_id == state.tx_inputs.length(),
+    state.tx_entry == None or state.next_token_id == state.input_tokens.length(),
   }
 
   def finalization_allowed: bool = all {
@@ -321,6 +372,23 @@ module starstream {
     state.tx_outputs[state.outputs_seen].methods.length() == state.abi_method_count.get(Utxo(state.output_cursor)),
     state' = { output_cursor: state.output_cursor + 1, outputs_seen: state.outputs_seen + 1,
       abi_read_remaining: state.abi_method_count.get(Utxo(state.output_cursor)), abi_read_ordinal: 0, ...state }
+  }
+
+  action get_token_storage(interface_id: int, storage: Output[StarstreamValue]): bool = all {
+    finalization_allowed,
+    state.abi_read_remaining == 0,
+    val i = state.output_cursor - state.next_utxo_id
+    all {
+      state.output_tokens.indices().contains(i),
+      i < state.next_token_id,
+      state.output_tokens[i].token == i,
+      state.token_interfaces.get(Token(i)) == interface_id,
+      state.token_owners.keys().contains(Token(i)),
+      state.token_owners.get(Token(i)) == Utxo(state.output_tokens[i].owner),
+      storage.value.is_valid(),
+      storage.value == state.output_tokens[i].storage,
+      state' = { output_cursor: state.output_cursor + 1, ...state }
+    }
   }
 
   // Host-synthesized final ABI enumeration, not a wasm event.
@@ -346,7 +414,7 @@ module starstream {
   action finalize_coordinator: bool = all {
     finalization_allowed,
     state.abi_read_remaining == 0,
-    state.output_cursor == state.next_utxo_id,
+    state.output_cursor == state.next_utxo_id + state.next_token_id,
     state.next_coordinator_to_finalize < state.next_coordinator_id,
     state' = {
       next_coordinator_to_finalize: state.next_coordinator_to_finalize + 1,
@@ -358,7 +426,7 @@ module starstream {
     state.next_coordinator_to_finalize == state.next_coordinator_id,
     state.abi_read_remaining == 0,
     finalization_allowed,
-    state.output_cursor == state.next_utxo_id,
+    state.output_cursor == state.next_utxo_id + state.next_token_id,
     state.outputs_seen == state.tx_outputs.length(),
     // Deferred statement binding; a framed preload digest can implement this.
     state.loaded_input_methods == state.tx_inputs.foldl(
@@ -367,6 +435,16 @@ module starstream {
   }
 
   action transaction_complete: bool = all {
+    state.next_token_id == state.output_tokens.length(),
+    state.input_tokens.indices().forall(i => state.tx_inputs.indices().contains(state.input_tokens[i].owner)),
+    state.output_tokens.indices().forall(i => {
+      val output = state.output_tokens[i]
+      all {
+        output.token == i,
+        is_valid(output.storage),
+        state.tx_outputs.indices().exists(j => state.tx_outputs[j].utxo == output.owner),
+      }
+    }),
     state.tx_phase == Finished,
     state' = state,
   }
@@ -427,14 +505,25 @@ module starstream {
   // A constructor identity binds the target contract and UTXO export, as a
   // script identity does for call_coordinator. The new instance must open with
   // a matching enter_constructor.
-  action new_utxo(constructor: ConstructorIdentity, arguments: StarstreamValue): bool = {
+  action call_constructor(minting: bool, constructor: ConstructorIdentity, arguments: StarstreamValue): bool = {
     val caller = state.curr
-    val target = Utxo(state.next_utxo_id)
+    val target = if (minting) Token(state.next_token_id) else Utxo(state.next_utxo_id)
 
     all {
       action_allowed(NewUtxo),
       arguments.is_valid(),
       caller.is_coord(),
+      val allocated = if (minting) { {next_token_id: state.next_token_id + 1, ...state} }
+      else {
+        {
+          utxo_lifecycle: state.utxo_lifecycle.put(target, Live),
+          next_utxo_id: state.next_utxo_id + 1,
+          enabled_methods: state.enabled_methods.put(target, Set()),
+          abi_method_count: state.abi_method_count.put(target, 0),
+          abi_registrations: state.abi_registrations.put(target, List()),
+          ...state
+        }
+      }
       state' = {
         curr: target,
         effect_local_depth: 0,
@@ -452,14 +541,26 @@ module starstream {
           }
         ),
         curr_cid_phase: CtorEnterPending,
-        utxo_lifecycle: state.utxo_lifecycle.put(target, Live),
-        next_utxo_id: state.next_utxo_id + 1,
-        enabled_methods: state.enabled_methods.put(target, Set()),
-        abi_method_count: state.abi_method_count.put(target, 0),
-        abi_registrations: state.abi_registrations.put(target, List()),
-        ...state
+        ...allocated
       }
     }
+  }
+
+  action new_utxo(constructor: ConstructorIdentity, arguments: StarstreamValue): bool =
+    call_constructor(false, constructor, arguments)
+
+  action mint(constructor: ConstructorIdentity, arguments: StarstreamValue): bool =
+    call_constructor(true, constructor, arguments)
+
+  action enter_mint(constructor: ConstructorIdentity, arguments: StarstreamValue, interface_id: int): bool = all {
+    action_allowed(EnterConstructor),
+    match state.curr { | Token(_) => true | _ => false },
+    arguments.is_valid(),
+    state.call_stack.last().kind == ConstructorCall,
+    state.call_stack.last().expected_arguments == arguments,
+    state.call_stack.last().expected_identity == Some(constructor),
+    state' = { curr_cid_phase: ConstructorExecuting,
+      token_interfaces: state.token_interfaces.put(state.curr, interface_id), ...state }
   }
 
   action enter_constructor(constructor: ConstructorIdentity, arguments: StarstreamValue): bool = all {
@@ -542,7 +643,8 @@ module starstream {
     all {
       frame.kind == ProgramCall or frame.kind == ConstructorCall,
       state.effect_local_depth == 0,
-      if (frame.kind == ConstructorCall or frame.caller == Coord(0))
+      if (frame.kind == ConstructorCall or frame.caller == Coord(0) or
+          (match state.curr { | Token(_) => true | _ => false }))
         frame.expected_result == result.value
       else true,
       val returning_to_import = frame.caller != Coord(0)
@@ -558,18 +660,18 @@ module starstream {
         utxo_lifecycle: utxo_lifecycle,
         curr_cid_phase:
           if (not(returning_to_import)) Executing
-          else if (frame.kind == ConstructorCall) NewUtxoHandlePending
+          else if (frame.kind == ConstructorCall) NewResourceHandlePending
           else CallResultPending,
         ...state
       },
     }
   }
 
-  action receive_new_utxo_handle(resource: Output[ResourceHandle]): bool = {
+  action receive_new_resource_handle(resource: Output[ResourceHandle]): bool = {
     val frame = state.call_stack.last()
     val key = { holder: state.curr, handle: resource.value }
     all {
-      action_allowed(ReceiveNewUtxoHandle),
+      action_allowed(ReceiveNewResourceHandle),
       frame.caller == state.curr,
       not(state.resource_resolver.keys().contains(key)),
       state' = {
@@ -625,6 +727,64 @@ module starstream {
     }
   }
 
+
+  // The caller and callback see different handles for the same destination.
+  action upcast(source: ResourceHandle, result: ResourceHandle): bool = {
+    val src = {holder: state.curr, handle: source}
+    val dst = {holder: state.curr, handle: result}
+    all {
+      action_allowed(Upcast),
+      state.resource_resolver.keys().contains(src),
+      not(state.resource_resolver.keys().contains(dst)),
+      state' = {resource_resolver: state.resource_resolver.put(dst, state.resource_resolver.get(src)), ...state}
+    }
+  }
+
+  action attach(token: ResourceHandle, destination: ResourceHandle): bool = {
+    val receiver = {holder: state.curr, handle: token}
+    val dest = {holder: state.curr, handle: destination}
+    all {
+      action_allowed(CallMethod),
+      state.curr.is_coord(),
+      state.resource_resolver.keys().contains(receiver),
+      state.resource_resolver.keys().contains(dest),
+      val target = state.resource_resolver.get(receiver)
+      val owner = state.resource_resolver.get(dest)
+      all {
+        match target { | Token(_) => true | _ => false },
+        owner.is_utxo(),
+        not(state.token_owners.keys().contains(target)),
+        state' = {
+          token_owners: state.token_owners.put(target, owner),
+          curr: target,
+          curr_cid_phase: CallEnterPending,
+          effect_local_depth: 0,
+          instance_stack: state.instance_stack.append(target),
+          call_stack: state.call_stack.append({
+            kind: ProgramCall, caller: state.curr, expected_arguments: UNIT_VALUE,
+            expected_result: UNIT_VALUE, expected_identity: None, saved_phase: state.curr_cid_phase,
+            saved_effect_head: state.effect_head, saved_effect_depth: state.effect_local_depth,
+          }),
+          ...state
+        }
+      }
+    }
+  }
+
+  action enter_attach(destination: ResourceHandle, interface_id: int): bool = {
+    val key = {holder: state.curr, handle: destination}
+    all {
+      action_allowed(EnterCall),
+      match state.curr { | Token(_) => true | _ => false },
+      state.token_interfaces.get(state.curr) == interface_id,
+      not(state.resource_resolver.keys().contains(key)),
+      state' = {
+        curr_cid_phase: Executing,
+        resource_resolver: state.resource_resolver.put(key, state.token_owners.get(state.curr)),
+        ...state
+      }
+    }
+  }
 
   action receive_call_result(result: Output[StarstreamValue]): bool = {
     val frame = state.call_stack.last()
@@ -703,6 +863,12 @@ module starstream {
         }
       | None => all { false, state' = state }
     },
+  }
+
+  action assert_signed_by(key: int): bool = all {
+    action_allowed(AssertSignedBy),
+    state.tx_signers.contains(key),
+    state' = state,
   }
 
   action pop_effect_handler_frame: bool = all {
@@ -946,6 +1112,7 @@ module starstream {
     match cid {
       | Coord(id) => 0 <= id and id < next_id
       | Utxo(_) => true
+      | Token(_) => true
     }
 
   val coordinator_ids_are_allocated = all {

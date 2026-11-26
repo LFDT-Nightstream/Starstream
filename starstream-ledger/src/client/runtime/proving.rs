@@ -248,7 +248,11 @@ impl Tracing {
             }
         }
         let execution =
-            check_captured_transaction(&store.data().traces, handles, &self.input_methods)?;
+            check_captured_transaction(&store.data().traces, handles, &self.input_methods, &[])?;
+        ensure!(
+            execution.transaction.statement.signers == store.data().required_signers,
+            "signers requested by the host differ from the captured signer assertions"
+        );
         Ok(TracedCall {
             execution,
             programs: self.programs,
@@ -293,8 +297,10 @@ pub fn prepare_verification(
                 coordination_exports: scripts,
                 contract_digest: &source.digest,
                 is_original_image: source.is_original_image,
+                input_tokens: &[],
                 input_utxos: &source.input_utxos,
                 new_utxos: &source.new_utxos,
+                new_tokens: &[],
             },
         )
         .collect::<Vec<_>>();

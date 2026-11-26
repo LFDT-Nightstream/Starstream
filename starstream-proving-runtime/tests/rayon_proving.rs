@@ -31,11 +31,12 @@ async fn warm_proof_on_the_only_global_rayon_worker_verifies() -> wasmtime::Resu
     let (warm, warm_sizes) = warm.through_bytes()?;
     assert_eq!(warm_sizes.wasm, cold_sizes.wasm);
     assert!(warm.interleaving.to_bytes()? == expected);
+    use starstream_interleaving_prover::CoroutineId::{Coord, Utxo};
     assert!(
         warm.instances
             .iter()
             .map(|item| item.coroutine)
-            .eq([0, 1].map(common::coroutine_id))
+            .eq([Coord(1), Utxo(0)].map(|id| id.encoded()))
     );
     let verification = common::prepare_contract_verification(&wasm, "example", &warm)?;
     prover.verify(&warm, &verification, &execution.transaction.statement)

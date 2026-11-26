@@ -166,6 +166,16 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Result<()> {
+    for external_id in [
+        encode_digest(&SCORE_WASM_DIGEST).to_uppercase(),
+        hex::encode(*SCORE_WASM_DIGEST),
+    ] {
+        check_imported_utxo(&external_id).await?;
+    }
+    Ok(())
+}
+
+async fn check_imported_utxo(external_id: &str) -> anyhow::Result<()> {
     let digest = encode_digest(&SCORE_WASM_DIGEST);
     let wat = wasmprinter::print_bytes(&*SCORE_WASM)?
         .replace(
@@ -175,8 +185,7 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
         .replacen(
             "(import \"starstream:utxo/score-progress\" (instance",
             &format!(
-                "(import \"starstream:utxo/score-progress\" (external-id \"{}\") (instance",
-                digest.to_uppercase()
+                "(import \"starstream:utxo/score-progress\" (external-id \"{external_id}\") (instance"
             ),
             1,
         );
@@ -579,4 +588,94 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
     .round_trip(&mut prover, store, execution?, transaction)
     .await?;
     Ok(())
+}
+
+async fn pay_to_public_key_workflow(prove: bool) -> anyhow::Result<()> {
+    use starstream_ledger::client::runtime::ProofEngine;
+    let mut prover = prove.then(|| TransactionProver::new(ProofEngine::Optimized));
+    let wasm = common::compile_contract(&format!(
+        "{}\nscript fn create() {{ let output = PayToPublicKey::start(PublicKey {{ dummy: 17 }}); }}\nscript fn spend(input: PayToPublicKey) {{ input.consume(); }}",
+        include_str!("../../examples/pay_to_public_key.star"),
+    ))?;
+    let mut config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut config);
+    let engine = Engine::new(&config)?;
+    let wizer = Wizer::new();
+    let mut imports = HashMap::new();
+    let contract = compile_contract(
+        &TestClient(None),
+        &engine,
+        &wizer,
+        &wasm,
+        None,
+        &mut imports,
+    )
+    .await?;
+    let (created, call) = call_coordination_script(
+        &mut Store::new(&engine, Ctx::default()),
+        &TestClient(None),
+        &wizer,
+        &contract,
+        &wasm,
+        &contract.get_coordination_script("create")?,
+        &mut imports,
+        vec![],
+        &mut [],
+        &mut vec![],
+        None,
+    )
+    .await?;
+    call?;
+    let input = TransactionInput::new(created.digest()?, 0);
+    let client = ProofFixture {
+        wasm: &wasm,
+        previous: Some(&created),
+    };
+    let spend = contract.get_coordination_script("spend")?;
+    let (mut tx, call) = call_coordination_script(
+        &mut Store::new(&engine, Ctx::default()),
+        &client,
+        &wizer,
+        &contract,
+        &wasm,
+        &spend,
+        &mut imports,
+        vec![input.into()],
+        &mut [],
+        &mut vec![],
+        prover.as_mut(),
+    )
+    .await?;
+    assert!(tx.outputs.is_empty());
+    let execution = call?.execution;
+    assert_eq!(tx.required_signers, [17].into());
+    assert_eq!(execution.transaction.statement.signers, tx.required_signers);
+    assert!(
+        execution
+            .transaction
+            .trace
+            .0
+            .contains(&starstream_proving_runtime::Step::AssertSignedBy { key: 17 })
+    );
+    if let Some(prover) = &mut prover {
+        verify_transaction_proof(prover, &tx, &client, &engine, &wizer).await?;
+        tx.required_signers.clear();
+        assert!(
+            verify_transaction_proof(prover, &tx, &client, &engine, &wizer)
+                .await
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn pay_to_public_key_spend_collects_the_stored_signer() -> anyhow::Result<()> {
+    pay_to_public_key_workflow(false).await
+}
+
+#[tokio::test]
+#[ignore = "Nebula proof; run with --release -- --ignored"]
+async fn pay_to_public_key_spend_proves_the_stored_signer() -> anyhow::Result<()> {
+    pay_to_public_key_workflow(true).await
 }

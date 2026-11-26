@@ -129,6 +129,8 @@ pub struct Transaction {
     #[cbor(n(3), with = "minicbor::bytes")]
     #[serde(serialize_with = "serialize_proof")]
     pub proof: Box<[u8]>,
+    #[n(4)]
+    pub required_signers: BTreeSet<u64>,
 }
 
 fn serialize_bytes<S: serde::Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
@@ -318,6 +320,16 @@ pub fn parse_digest(s: &str) -> Result<[u8; 32], DigestParseError> {
     Ok(digest)
 }
 
+/// Component imports can identify a contract by compiler hex or ledger multihash.
+#[cfg(any(feature = "client", feature = "server"))]
+pub(crate) fn parse_contract_external_id(id: &str) -> Result<[u8; 32], DigestParseError> {
+    let mut digest = [0; 32];
+    if hex::decode_to_slice(id, &mut digest).is_ok() {
+        return Ok(digest);
+    }
+    parse_digest(id)
+}
+
 /// Encode a raw SHA-256 contract digest in the canonical ledger form: the
 /// multibase base32-lower encoding of its sha2-256 multihash. The result is
 /// always a 56-character lowercase alphanumeric string starting with `b` — a
@@ -339,6 +351,7 @@ mod tests {
             outputs: Vec::new(),
             events: Vec::new(),
             proof: proof.into(),
+            required_signers: Default::default(),
         }
     }
 

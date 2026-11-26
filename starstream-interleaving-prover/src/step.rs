@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
-use starstream_interleaving_spec::{EventIdentity, MethodHash, ResourceHandle, Step, Trace};
+use starstream_interleaving_spec::{
+    EventIdentity, MethodHash, ResourceHandle, StarstreamValue, Step, Trace,
+};
 
 use crate::{
     ivc_state::{CoroutineId, CurrPhase, TxPhase},
@@ -35,7 +37,18 @@ pub(crate) fn method_table(trace: &Trace) -> Vec<MethodHash> {
     method_table
 }
 
+#[cfg(test)]
 pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
+    normalize_with_inputs(trace, &Default::default(), &[])
+}
+
+pub(crate) fn normalize_with_inputs(
+    trace: &Trace,
+    signers: &std::collections::BTreeSet<u64>,
+    output_tokens: &[starstream_interleaving_spec::OutputToken],
+) -> NormalizedTrace {
+    let mut io_chain = [F::ZERO; 4];
+    let signer_indices: HashMap<_, _> = signers.iter().copied().zip(0u32..).collect();
     let method_table = method_table(trace);
     let method_indices = method_table
         .iter()
@@ -71,6 +84,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     // BeginExecution pushes the entry frame, whose caller is the context.
     let mut callers: Vec<CallFrame> = vec![];
     let mut call_sp = F::ZERO;
+    let mut next_token_id = 0u32;
     let mut next_utxo_id = 0u32;
     // Coord(0) is the transaction context; scripts are allocated from Coord(1).
     let mut next_coordinator_id = 1u32;
@@ -82,18 +96,32 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     let mut log_address_by_entry = HashMap::new();
     let mut last_log_membership = HashMap::new();
     let mut commitments = HashMap::new();
-    let mut io_chain = [F::ZERO; 4];
+
     // Hand-off registers: what a call, return or handler exit leaves for the
     // step that must follow it.
-    let mut pending_root = [F::ZERO; 4];
+    let mut pending_value = [F::ZERO; 4];
     let mut pending_method = [F::ZERO; 8];
 
     for step in &trace.0 {
         let opcode = Opcode::from(step);
         let tx_before = tx;
-        let boundary_utxo = match opcode {
+        let boundary_coroutine_id = match opcode {
+            Opcode::SetStorage
+                if matches!(
+                    step,
+                    Step::SetStorage {
+                        kind: starstream_interleaving_spec::StorageKind::Token { .. },
+                        ..
+                    }
+                ) =>
+            {
+                CoroutineId::Token(next_token_id)
+            }
             Opcode::SetStorage => CoroutineId::Utxo(next_utxo_id),
             Opcode::PreloadMethod => CoroutineId::Utxo(next_utxo_id.saturating_sub(1)),
+            Opcode::GetTokenStorage => {
+                CoroutineId::Token(tx.output_cursor.saturating_sub(next_utxo_id))
+            }
             Opcode::GetStorage | Opcode::SkipConsumed => CoroutineId::Utxo(tx.output_cursor),
             Opcode::ReadAbi => CoroutineId::Utxo(tx.output_cursor.saturating_sub(1)),
             _ => CoroutineId::Coord(0),
@@ -101,6 +129,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let curr_before = curr;
         let instance_depth_before = instance_stack.len().saturating_sub(1) as u32;
         let curr_phase_before = curr_phase;
+        let next_token_id_before = next_token_id;
         let next_utxo_id_before = next_utxo_id;
         let next_coordinator_id_before = next_coordinator_id;
         let enabled_method_log_len_before =
@@ -133,6 +162,9 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let mut method_index = 0;
         let mut curr_after = curr_before;
         let mut call_target = CoroutineId::Coord(0);
+        let mut token_interface = 0;
+        let mut second_handle = ResourceHandle(0);
+        let mut second_target = CoroutineId::Coord(0);
         let mut resolver_address = (CoroutineId::Coord(0), ResourceHandle(0));
         let mut resolver_value = CoroutineId::Coord(0);
         let mut resolver_read = false;
@@ -146,7 +178,6 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let mut call_frame_is_effect = false;
         let mut call_frame_constructor = false;
         let mut call_frame_saved_phase = CurrPhase::Executing;
-        let mut return_requires_unit = false;
         let mut effect_handled = false;
         let mut effect_frame_id = 0;
         let mut effect_registered = false;
@@ -186,13 +217,16 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             Step::ReadAbi { method } => {
                 event_identity = Some(identity_limbs(*method));
                 method_index = method_indices[method];
-                abi_generation_address = boundary_utxo;
-                abi_generation_before = abi_generations.get(&boundary_utxo).copied().unwrap_or(0);
-                enabled_method_log_utxo = boundary_utxo;
+                abi_generation_address = boundary_coroutine_id;
+                abi_generation_before = abi_generations
+                    .get(&boundary_coroutine_id)
+                    .copied()
+                    .unwrap_or(0);
+                enabled_method_log_utxo = boundary_coroutine_id;
                 enabled_method_log_generation = abi_generation_before;
                 enabled_method_log_address = log_address_by_entry
                     .get(&(
-                        boundary_utxo,
+                        boundary_coroutine_id,
                         method_index,
                         abi_generation_before,
                         tx.abi_read_ordinal,
@@ -203,22 +237,47 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 tx.abi_read_remaining = tx.abi_read_remaining.wrapping_sub(1);
             }
             Step::SetStorage {
+                kind,
                 storage,
-                entry_utxo_handle,
+                entry_handle,
             } => {
                 expected_arguments = Some(storage.words32().map(|x| F::new(u64::from(x))).to_vec());
-                next_utxo_id = next_utxo_id
-                    .checked_add(1)
-                    .expect("UTXO allocator fits u32");
-                resolver_address = (CoroutineId::Coord(1), *entry_utxo_handle);
-                resolver_value = boundary_utxo;
+                match kind {
+                    starstream_interleaving_spec::StorageKind::Token { interface } => {
+                        token_interface = *interface;
+                        next_token_id = next_token_id
+                            .checked_add(1)
+                            .expect("token allocator fits u32")
+                    }
+                    starstream_interleaving_spec::StorageKind::Utxo => {
+                        next_utxo_id = next_utxo_id
+                            .checked_add(1)
+                            .expect("UTXO allocator fits u32");
+                        tx.last_input_has_abi = false;
+                    }
+                }
+                resolver_address = (CoroutineId::Coord(1), *entry_handle);
+                resolver_value = boundary_coroutine_id;
                 resolver_write = true;
                 resource_resolver.insert(resolver_address, resolver_value);
-                tx.last_input_has_abi = false;
             }
             Step::FinishTransaction => tx.phase = TxPhase::Finished,
+            Step::GetTokenStorage { storage, interface } => {
+                token_interface = *interface;
+                let index = tx.output_cursor.saturating_sub(next_utxo_id);
+                second_target = output_tokens
+                    .get(index as usize)
+                    .map(|output| CoroutineId::Utxo(output.owner))
+                    .filter(|owner| owner.checked_encoded().is_some())
+                    .unwrap_or(CoroutineId::Coord(0));
+                expected_result = Some(storage.0.words32().map(F::from_u32).to_vec());
+                tx.output_cursor += 1;
+            }
             Step::GetStorage { storage } => {
-                tx.abi_read_remaining = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
+                tx.abi_read_remaining = abi_method_counts
+                    .get(&boundary_coroutine_id)
+                    .copied()
+                    .unwrap_or(0);
                 tx.abi_read_ordinal = 0;
                 expected_result = Some(storage.0.words32().map(|x| F::new(u64::from(x))).to_vec());
                 tx.output_cursor = tx
@@ -235,7 +294,11 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             Step::FinalizeCoordinator => {
                 tx.coordinator_cursor = tx.coordinator_cursor.wrapping_add(1);
             }
-            Step::NewUtxo {
+            Step::Mint {
+                constructor,
+                arguments,
+            }
+            | Step::NewUtxo {
                 constructor,
                 arguments,
             } => {
@@ -248,10 +311,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                         .collect(),
                 );
 
-                let target = CoroutineId::Utxo(next_utxo_id_before);
-                next_utxo_id = next_utxo_id_before
-                    .checked_add(1)
-                    .expect("the UTXO allocator fits in u32");
+                let target = if opcode == Opcode::Mint {
+                    next_token_id += 1;
+                    CoroutineId::Token(next_token_id_before)
+                } else {
+                    next_utxo_id += 1;
+                    CoroutineId::Utxo(next_utxo_id_before)
+                };
                 callers.push(CallFrame {
                     caller: curr_before,
                     saved_phase: curr_phase_before,
@@ -268,11 +334,19 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 call_frame_constructor = true;
                 call_frame_saved_phase = curr_phase_before;
             }
-            Step::EnterConstructor {
+            Step::EnterMint {
+                constructor,
+                arguments,
+                ..
+            }
+            | Step::EnterConstructor {
                 constructor,
                 arguments,
             } => {
                 event_identity = Some(identity_limbs(*constructor));
+                if let Step::EnterMint { interface, .. } = step {
+                    token_interface = *interface;
+                }
                 call_frame_constructor = callers
                     .last()
                     .map(|frame| frame.kind == CallFrameKind::Constructor)
@@ -296,7 +370,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             Step::RegisterMethod { method } | Step::PreloadMethod { method } => {
                 let owner = if opcode == Opcode::PreloadMethod {
                     tx.last_input_has_abi = true;
-                    boundary_utxo
+                    boundary_coroutine_id
                 } else {
                     curr_before
                 };
@@ -343,13 +417,11 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 call_frame_constructor = frame.kind == CallFrameKind::Constructor;
                 saved_effect_depth = frame.saved_effect_depth;
                 effect_depth = frame.saved_effect_depth;
-                return_requires_unit =
-                    frame.kind == CallFrameKind::Constructor || !return_has_receiver;
                 curr_after = frame.caller;
                 call_target = frame.caller;
                 if return_has_receiver {
                     dynamic_phase_after = Some(if frame.kind == CallFrameKind::Constructor {
-                        CurrPhase::NewUtxoHandlePending
+                        CurrPhase::NewResourceHandlePending
                     } else {
                         CurrPhase::CallResultPending
                     });
@@ -357,6 +429,60 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     callers.pop();
                     dynamic_phase_after = Some(CurrPhase::Executing);
                 }
+            }
+            Step::Upcast { source, result } => {
+                second_handle = *source;
+                second_target = resource_resolver
+                    .get(&(curr_before, *source))
+                    .copied()
+                    .unwrap_or(CoroutineId::Coord(0));
+                resolver_address = (curr_before, result.0);
+                resolver_value = second_target;
+                resolver_write = true;
+                resource_resolver.insert(resolver_address, resolver_value);
+            }
+            Step::Attach { token, destination } => {
+                resolver_address = (curr_before, *token);
+                resolver_read = true;
+                resolver_value = resource_resolver
+                    .get(&resolver_address)
+                    .copied()
+                    .unwrap_or(CoroutineId::Coord(0));
+                second_handle = *destination;
+                second_target = resource_resolver
+                    .get(&(curr_before, *destination))
+                    .copied()
+                    .unwrap_or(CoroutineId::Coord(0));
+                let arguments = StarstreamValue([u64::from(second_target.encoded()), 0, 0, 0]);
+                expected_arguments = Some(arguments.words32().map(F::from_u32).to_vec());
+                callers.push(CallFrame {
+                    caller: curr_before,
+                    saved_phase: curr_phase_before,
+                    kind: CallFrameKind::Program,
+                    saved_effect_head: effect_head_before,
+                    saved_effect_depth: effect_depth_before,
+                    arguments,
+                    effect: None,
+                });
+                effect_depth = 0;
+                instance_stack.push(resolver_value);
+                curr_after = resolver_value;
+                call_target = resolver_value;
+                call_frame_saved_phase = curr_phase_before;
+            }
+            Step::EnterAttach {
+                destination,
+                interface,
+            } => {
+                token_interface = *interface;
+                resolver_address = (curr_before, *destination);
+                resolver_value = callers
+                    .last()
+                    .and_then(|frame| u32::try_from(frame.arguments.0[0]).ok())
+                    .and_then(CoroutineId::from_packed)
+                    .unwrap_or(CoroutineId::Coord(0));
+                resolver_write = true;
+                resource_resolver.insert(resolver_address, resolver_value);
             }
             Step::CallMethod {
                 resource,
@@ -415,7 +541,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 );
                 event_identity.replace(identity_limbs(*method));
             }
-            Step::ReceiveNewUtxoHandle { resource } => {
+            Step::ReceiveNewResourceHandle { resource } => {
                 let frame = callers
                     .pop()
                     .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Constructor));
@@ -455,6 +581,12 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     arguments: arguments.clone(),
                     effect: Some(*effect),
                 });
+            }
+            Step::AssertSignedBy { key } => {
+                event_identity = Some(identity_limbs(EventIdentity::from_u64_words([
+                    *key, 0, 0, 0,
+                ])));
+                method_index = signer_indices.get(key).copied().unwrap_or(0);
             }
             Step::PushEffectHandlerFrame { frame_id } => {
                 arena.push(EffectScope {
@@ -582,16 +714,22 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .expect("registration count fits u32");
             }
             abi_method_counts.insert(abi_generation_address, abi_method_count_after);
-        } else if opcode.scans_output() {
-            abi_method_count_before = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
+        } else if opcode.scans_utxo_output() {
+            abi_method_count_before = abi_method_counts
+                .get(&boundary_coroutine_id)
+                .copied()
+                .unwrap_or(0);
         }
         let event_owner = if opcode == Opcode::FinalizeCoordinator {
             CoroutineId::Coord(tx_before.coordinator_cursor)
         } else if matches!(
             opcode,
-            Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
+            Opcode::SetStorage
+                | Opcode::GetStorage
+                | Opcode::GetTokenStorage
+                | Opcode::SkipConsumed
         ) {
-            boundary_utxo
+            boundary_coroutine_id
         } else if matches!(opcode, Opcode::EnterEffectHandler | Opcode::ResumeEffect) {
             call_target
         } else if opcode.has_event() {
@@ -611,24 +749,26 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 limb(2 * i) + F::new(1 << 32) * limb(2 * i + 1)
             })
         };
-        let pending_root_before = pending_root;
+        let pending_value_before = pending_value;
         let pending_method_before = pending_method;
         match opcode {
+            Opcode::Attach => pending_value = root_of(&expected_arguments),
             Opcode::CallMethod
             | Opcode::CallCoordinator
             | Opcode::BeginExecution
+            | Opcode::Mint
             | Opcode::NewUtxo => {
-                pending_root = root_of(&expected_arguments);
+                pending_value = root_of(&expected_arguments);
                 pending_method = event_identity.unwrap_or([F::ZERO; 8]);
             }
             Opcode::Return | Opcode::ExitEffectHandler => {
-                pending_root = root_of(&expected_result);
+                pending_value = root_of(&expected_result);
             }
             _ => {}
         }
         let mut row = Wit {
-            pending_root_before,
-            pending_root_after: pending_root,
+            pending_value_before,
+            pending_value_after: pending_value,
             pending_method_before,
             pending_method_after: pending_method,
             instance_depth_before,
@@ -639,7 +779,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             abi_method_count_after,
             tx_before,
             tx_after: tx,
-            boundary_utxo,
+            boundary_coroutine_id,
             event_owner,
             commitment_before,
             opcode,
@@ -657,7 +797,6 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             call_frame_is_effect,
             call_frame_constructor,
             call_frame_saved_phase,
-            return_requires_unit,
             effect_handled,
             effect_frame_id,
             effect_registered,
@@ -678,6 +817,8 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             effect_arena_len_before,
             effect_arena_len_after: u32::try_from(arena.len())
                 .expect("the effect arena fits in u32"),
+            next_token_id_before,
+            next_token_id_after: next_token_id,
             next_utxo_id_before,
             next_utxo_id_after: next_utxo_id,
             next_coordinator_id_before,
@@ -685,6 +826,9 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             enabled_method_log_len_before,
             enabled_method_log_len_after: u32::try_from(enabled_method_log.len())
                 .expect("the enabled-method log fits in u32"),
+            token_interface,
+            second_handle,
+            second_target,
             resolver_address,
             resolver_value,
             resolver_read,
@@ -767,15 +911,15 @@ impl CallFrame {
 }
 
 pub(crate) struct Wit {
-    pub(crate) pending_root_before: [F; 4],
-    pub(crate) pending_root_after: [F; 4],
+    pub(crate) pending_value_before: [F; 4],
+    pub(crate) pending_value_after: [F; 4],
     pub(crate) pending_method_before: [F; 8],
     pub(crate) pending_method_after: [F; 8],
     pub(crate) io_before: [F; 4],
     pub(crate) io_after: [F; 4],
     pub(crate) tx_before: TransactionState,
     pub(crate) tx_after: TransactionState,
-    pub(crate) boundary_utxo: CoroutineId,
+    pub(crate) boundary_coroutine_id: CoroutineId,
     pub(crate) event_owner: CoroutineId,
     pub(crate) commitment_before: [F; 4],
     pub(crate) opcode: Opcode,
@@ -793,7 +937,6 @@ pub(crate) struct Wit {
     pub(crate) call_frame_is_effect: bool,
     pub(crate) call_frame_constructor: bool,
     pub(crate) call_frame_saved_phase: CurrPhase,
-    pub(crate) return_requires_unit: bool,
     pub(crate) effect_handled: bool,
     pub(crate) effect_frame_id: u32,
     pub(crate) effect_registered: bool,
@@ -807,12 +950,17 @@ pub(crate) struct Wit {
     pub(crate) effect_arena_len_after: u32,
     pub(crate) instance_depth_before: u32,
     pub(crate) instance_depth_after: u32,
+    pub(crate) next_token_id_before: u32,
+    pub(crate) next_token_id_after: u32,
     pub(crate) next_utxo_id_before: u32,
     pub(crate) next_utxo_id_after: u32,
     pub(crate) next_coordinator_id_before: u32,
     pub(crate) next_coordinator_id_after: u32,
     pub(crate) enabled_method_log_len_before: u32,
     pub(crate) enabled_method_log_len_after: u32,
+    pub(crate) token_interface: u32,
+    pub(crate) second_handle: ResourceHandle,
+    pub(crate) second_target: CoroutineId,
     pub(crate) resolver_address: (CoroutineId, ResourceHandle),
     pub(crate) resolver_value: CoroutineId,
     pub(crate) resolver_read: bool,
@@ -843,8 +991,8 @@ impl Wit {
     /// assigned zero. It goes through the same column assigner as execution.
     pub(crate) fn padding_after(&self) -> Self {
         Self {
-            pending_root_before: self.pending_root_after,
-            pending_root_after: self.pending_root_after,
+            pending_value_before: self.pending_value_after,
+            pending_value_after: self.pending_value_after,
             pending_method_before: self.pending_method_after,
             pending_method_after: self.pending_method_after,
             instance_depth_before: self.instance_depth_after,
@@ -853,7 +1001,7 @@ impl Wit {
             io_before: self.io_after,
             io_after: self.io_after,
             tx_after: self.tx_after,
-            boundary_utxo: CoroutineId::Coord(0),
+            boundary_coroutine_id: CoroutineId::Coord(0),
             event_owner: CoroutineId::Coord(0),
             commitment_before: [F::ZERO; 4],
             opcode: Opcode::Padding,
@@ -871,7 +1019,6 @@ impl Wit {
             call_frame_is_effect: false,
             call_frame_constructor: false,
             call_frame_saved_phase: CurrPhase::Executing,
-            return_requires_unit: false,
             effect_handled: false,
             effect_frame_id: 0,
             effect_registered: false,
@@ -883,12 +1030,17 @@ impl Wit {
             effect_depth_after: self.effect_depth_after,
             effect_arena_len_before: self.effect_arena_len_after,
             effect_arena_len_after: self.effect_arena_len_after,
+            next_token_id_before: self.next_token_id_after,
+            next_token_id_after: self.next_token_id_after,
             next_utxo_id_before: self.next_utxo_id_after,
             next_utxo_id_after: self.next_utxo_id_after,
             next_coordinator_id_before: self.next_coordinator_id_after,
             next_coordinator_id_after: self.next_coordinator_id_after,
             enabled_method_log_len_before: self.enabled_method_log_len_after,
             enabled_method_log_len_after: self.enabled_method_log_len_after,
+            token_interface: 0,
+            second_handle: ResourceHandle(0),
+            second_target: CoroutineId::Coord(0),
             resolver_address: (CoroutineId::Coord(0), ResourceHandle(0)),
             resolver_value: CoroutineId::Coord(0),
             resolver_read: false,
