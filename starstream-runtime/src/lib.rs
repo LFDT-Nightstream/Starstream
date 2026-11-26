@@ -82,6 +82,47 @@ pub fn utxo_imports<'a>(
 }
 
 #[derive(Clone, Debug)]
+pub struct TokenImport<'a> {
+    pub name: &'a str,
+    pub external_id: &'a str,
+    pub ty: types::ComponentInstance,
+}
+
+/// Iterate over tokens imported by this [Contract].
+#[instrument(level = "trace", skip_all)]
+pub fn token_imports<'a>(
+    engine: &'a Engine,
+    ty: &'a types::Component,
+) -> impl Iterator<Item = wasmtime::Result<TokenImport<'a>>> {
+    ty.imports(engine).filter_map(
+        |(
+            name,
+            types::ComponentExtern {
+                ty, external_id, ..
+            },
+        )| {
+            let types::ComponentItem::ComponentInstance(ty) = ty else {
+                return None;
+            };
+            let ("starstream:token", name) = name.split_once('/')? else {
+                return None;
+            };
+            if let Some(external_id) = external_id {
+                Some(Ok(TokenImport {
+                    name,
+                    external_id,
+                    ty,
+                }))
+            } else {
+                Some(Err(format_err!(
+                    "`external-id` missing for token import `{name}`"
+                )))
+            }
+        },
+    )
+}
+
+#[derive(Clone, Debug)]
 pub struct CoordinationScriptImport<'a> {
     pub name: &'a str,
     pub external_id: &'a str,

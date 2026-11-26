@@ -11,8 +11,8 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
 use starstream_runtime::{
-    CoordinationScriptImport, StarstreamCtx, UtxoImport, get_coordination_script_instance_import,
-    utxo_imports,
+    CoordinationScriptImport, StarstreamCtx, TokenImport, UtxoImport,
+    get_coordination_script_instance_import, token_imports, utxo_imports,
 };
 use tokio::sync::{RwLock, Semaphore};
 use tracing::error;
@@ -206,7 +206,10 @@ impl Ledger {
         });
         let utxo_external_ids = utxo_imports(&self.engine, &ty)
             .map(|import| import.map(|UtxoImport { external_id, .. }| external_id));
+        let token_external_ids = token_imports(&self.engine, &ty)
+            .map(|import| import.map(|TokenImport { external_id, .. }| external_id));
         let external_ids: HashSet<_> = utxo_external_ids
+            .chain(token_external_ids)
             .chain(script_external_ids.into_iter().flatten())
             .collect::<wasmtime::Result<_>>()?;
         for external_id in external_ids {
