@@ -217,6 +217,70 @@ pub trait Host:
 
     fn drop_token(store: StoreContextMut<Self>, cx: Resource<Token>) -> wasmtime::Result<()>;
 
+    /// Mint a token of token instance `instance_name` by calling `f`, which calls its `mint fn`.
+    ///
+    /// A host rejecting the token returned by `f` must drop it.
+    fn mint_token<'a>(
+        mut store: StoreContextMut<'a, Self>,
+        _instance_name: &Arc<str>,
+        _external_id: Option<&Arc<str>>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<Token>> + Send + 'b>>
+        + Send,
+    ) -> impl Future<Output = wasmtime::Result<Token>> + Send {
+        async move { f(&mut store).await }
+    }
+
+    /// Burn `token` by passing it to `f`, which calls the token contract's `burn fn`.
+    ///
+    /// If the host rejects the burn without calling `f`, the token stays in the table.
+    fn burn_token<'a>(
+        mut store: StoreContextMut<'a, Self>,
+        token: Resource<Token>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> impl Future<Output = wasmtime::Result<()>> + Send {
+        async move { f(&mut store, token).await }
+    }
+
+    /// Attach `token` to `utxo` by passing them to `f`, which calls the token contract's `attach` method.
+    fn attach_token<'a>(
+        mut store: StoreContextMut<'a, Self>,
+        token: Resource<Token>,
+        utxo: Resource<Utxo<Self::UtxoContext>>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+            Resource<Utxo<Self::UtxoContext>>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> impl Future<Output = wasmtime::Result<()>> + Send {
+        async move { f(&mut store, token, utxo).await }
+    }
+
+    /// Detach `token` from `utxo` by passing them to `f`, which calls the token contract's `detach` method.
+    fn detach_token<'a>(
+        mut store: StoreContextMut<'a, Self>,
+        token: Resource<Token>,
+        utxo: Resource<Utxo<Self::UtxoContext>>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+            Resource<Utxo<Self::UtxoContext>>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> impl Future<Output = wasmtime::Result<()>> + Send {
+        async move { f(&mut store, token, utxo).await }
+    }
+
     fn emit_event(
         store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
@@ -813,11 +877,12 @@ fn link_dynamic_utxo_instance<T: Host>(
 
 /// Link typed token `mint fn` in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
-fn link_typed_token_mint<T: Host>(
+fn link_token_mint<T: Host>(
     target: &ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
     instance_idx: ComponentExportIndex,
+    instance_name: &Arc<str>,
     idx: ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
@@ -826,16 +891,29 @@ fn link_typed_token_mint<T: Host>(
         bail!("function does not return a single resource value")
     };
     let contract = ImportedContract::from(target);
+    let instance_name = Arc::clone(instance_name);
     linker.func_new_async(name, move |mut store, _ty, params, results| {
         let contract = contract.clone();
+        let instance_name = Arc::clone(&instance_name);
         Box::new(async move {
             let contract = contract
                 .as_contract()
                 .context("contract was not initialized")?;
-            let instance = contract.instantiate(&mut store).await?;
-            let token = instance
-                .construct_token(&mut store, instance_idx, idx, params)
-                .await?;
+            let token = T::mint_token(
+                store.as_context_mut(),
+                &instance_name,
+                contract.external_id.as_ref(),
+                |store| {
+                    let instance_name = Arc::clone(&instance_name);
+                    Box::pin(async move {
+                        let instance = contract.instantiate(&mut *store).await?;
+                        instance
+                            .construct_token(store, instance_idx, instance_name, idx, params)
+                            .await
+                    })
+                },
+            )
+            .await?;
             let token = store.data_mut().table().push(token)?;
             let token = token.try_into_resource_any(store.as_context_mut())?;
             results[0] = Val::Resource(token);
@@ -846,7 +924,7 @@ fn link_typed_token_mint<T: Host>(
 
 /// Link typed token `burn fn` in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
-fn link_typed_token_burn<T: Host>(
+fn link_token_burn<T: Host>(
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
@@ -862,26 +940,30 @@ fn link_typed_token_burn<T: Host>(
                 bail!("first parameter is not a resource")
             };
             let token = token.try_into_resource::<Token>(&mut store)?;
-            let Token {
-                instance, resource, ..
-            } = store.data_mut().table().delete(token)?;
-            let params = {
-                let mut ps = Vec::with_capacity(params.len());
-                ps.push(Val::Resource(resource));
-                for p in &params[1..] {
-                    ps.push(p.clone());
-                }
-                ps
-            };
-            call_func(store, &instance, idx, &params, results).await?;
-            Ok(())
+            T::burn_token(store.as_context_mut(), token, |store, token| {
+                Box::pin(async move {
+                    let Token {
+                        instance, resource, ..
+                    } = store.data_mut().table().delete(token)?;
+                    let params = {
+                        let mut ps = Vec::with_capacity(params.len());
+                        ps.push(Val::Resource(resource));
+                        for p in &params[1..] {
+                            ps.push(p.clone());
+                        }
+                        ps
+                    };
+                    call_func(store, &instance, idx, &params, results).await
+                })
+            })
+            .await
         })
     })
 }
 
-/// Link the built-in `Token` ABI `attach`/`detach` method in a [`LinkerInstance`]
+/// Link the built-in `Token` ABI `attach` method in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
-fn link_typed_token_attach_detach<T: Host>(
+fn link_token_attach<T: Host>(
     linker: &mut LinkerInstance<T>,
     idx: ComponentExportIndex,
     name: &str,
@@ -890,17 +972,55 @@ fn link_typed_token_attach_detach<T: Host>(
         name,
         move |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
             Box::new(async move {
-                let &Token {
-                    instance, resource, ..
-                } = store.data_mut().table().get(&token)?;
-                let utxo = utxo.try_into_resource_any(&mut store)?;
-                call_func(
-                    &mut store,
-                    &instance,
-                    idx,
-                    &[Val::Resource(resource), Val::Resource(utxo)],
-                    &mut [],
-                )
+                T::attach_token(store.as_context_mut(), token, utxo, |store, token, utxo| {
+                    Box::pin(async move {
+                        let &Token {
+                            instance, resource, ..
+                        } = store.data_mut().table().get(&token)?;
+                        let utxo = utxo.try_into_resource_any(&mut *store)?;
+                        call_func(
+                            store,
+                            &instance,
+                            idx,
+                            &[Val::Resource(resource), Val::Resource(utxo)],
+                            &mut [],
+                        )
+                        .await
+                    })
+                })
+                .await
+            })
+        },
+    )
+}
+
+/// Link the built-in `Token` ABI `detach` method in a [`LinkerInstance`]
+#[instrument(level = "trace", skip_all)]
+fn link_token_detach<T: Host>(
+    linker: &mut LinkerInstance<T>,
+    idx: ComponentExportIndex,
+    name: &str,
+) -> wasmtime::Result<()> {
+    linker.func_wrap_async(
+        name,
+        move |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
+            Box::new(async move {
+                T::detach_token(store.as_context_mut(), token, utxo, |store, token, utxo| {
+                    Box::pin(async move {
+                        let &Token {
+                            instance, resource, ..
+                        } = store.data_mut().table().get(&token)?;
+                        let utxo = utxo.try_into_resource_any(&mut *store)?;
+                        call_func(
+                            store,
+                            &instance,
+                            idx,
+                            &[Val::Resource(resource), Val::Resource(utxo)],
+                            &mut [],
+                        )
+                        .await
+                    })
+                })
                 .await
             })
         },
@@ -945,6 +1065,7 @@ fn link_typed_token_function<T: Host>(
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
     instance_idx: &ComponentExportIndex,
+    instance_name: &Arc<str>,
     name: &str,
 ) -> wasmtime::Result<()> {
     let idx = target
@@ -966,15 +1087,14 @@ fn link_typed_token_function<T: Host>(
                     bail!("typed token function must not both take and return an owned resource")
                 }
                 ((..), (Some(Type::Own(..)), None)) => {
-                    link_typed_token_mint(target, linker, ty, *instance_idx, idx, name)
+                    link_token_mint(target, linker, ty, *instance_idx, instance_name, idx, name)
                 }
-                ((Some(Type::Own(..)), None), (..)) => link_typed_token_burn(linker, ty, idx, name),
+                ((Some(Type::Own(..)), None), (..)) => link_token_burn(linker, ty, idx, name),
                 _ => bail!("failed to classify typed token function"),
             }
         }
-        Some(("[method", "token.attach" | "token.detach")) => {
-            link_typed_token_attach_detach(linker, idx, name)
-        }
+        Some(("[method", "token.attach")) => link_token_attach(linker, idx, name),
+        Some(("[method", "token.detach")) => link_token_detach(linker, idx, name),
         _ => bail!("unexpected typed token instance function import `{name}`"),
     }
 }
@@ -991,6 +1111,7 @@ fn link_typed_token_instance<T: Host>(
     let instance_idx = component
         .get_export_index(None, name)
         .with_context(|| format!("`{name}` export was not found"))?;
+    let instance_name = Arc::<str>::from(name);
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(component.engine()) {
         debug!(name, "linking typed token instance item");
         match ty {
@@ -1001,7 +1122,14 @@ fn link_typed_token_instance<T: Host>(
                 link_token_upcast(linker)?;
             }
             types::ComponentItem::ComponentFunc(ty) => {
-                link_typed_token_function(&target, linker, ty, &instance_idx, name)?;
+                link_typed_token_function(
+                    &target,
+                    linker,
+                    ty,
+                    &instance_idx,
+                    &instance_name,
+                    name,
+                )?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("typed token instance core function imports unsupported")
@@ -1265,6 +1393,7 @@ fn link_imports<T: Host>(
 pub struct Contract<T: 'static> {
     pre: InstancePre<T>,
     ty: types::Component,
+    external_id: Option<Arc<str>>,
 }
 
 impl<T: 'static> Clone for Contract<T> {
@@ -1272,6 +1401,7 @@ impl<T: 'static> Clone for Contract<T> {
         Self {
             pre: self.pre.clone(),
             ty: self.ty.clone(),
+            external_id: self.external_id.clone(),
         }
     }
 }
@@ -1336,23 +1466,29 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         "attach",
         |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
             Box::new(async move {
-                let &Token {
-                    ref component,
-                    instance,
-                    instance_idx,
-                    resource,
-                } = store.data_mut().table().get(&token)?;
-                let idx = component
-                    .get_export_index(Some(&instance_idx), "[method]token.attach")
-                    .context("`[method]token.attach` export was not found")?;
-                let utxo = utxo.try_into_resource_any(&mut store)?;
-                call_func(
-                    &mut store,
-                    &instance,
-                    idx,
-                    &[Val::Resource(resource), Val::Resource(utxo)],
-                    &mut [],
-                )
+                T::attach_token(store.as_context_mut(), token, utxo, |store, token, utxo| {
+                    Box::pin(async move {
+                        let &Token {
+                            ref component,
+                            instance,
+                            instance_idx,
+                            resource,
+                            ..
+                        } = store.data_mut().table().get(&token)?;
+                        let idx = component
+                            .get_export_index(Some(&instance_idx), "[method]token.attach")
+                            .context("`[method]token.attach` export was not found")?;
+                        let utxo = utxo.try_into_resource_any(&mut *store)?;
+                        call_func(
+                            store,
+                            &instance,
+                            idx,
+                            &[Val::Resource(resource), Val::Resource(utxo)],
+                            &mut [],
+                        )
+                        .await
+                    })
+                })
                 .await
             })
         },
@@ -1445,7 +1581,11 @@ impl<T: Host> Contract<T> {
             .instantiate_pre(component)
             .context("failed to pre-instantiate component")?;
 
-        let this = Self { pre, ty };
+        let this = Self {
+            pre,
+            ty,
+            external_id,
+        };
         let Ok(()) = contract.set(this.clone()) else {
             bail!("contract initialized twice")
         };
@@ -1728,6 +1868,7 @@ impl<T: Host> Contract<T> {
             resource_ty: token_ty,
             instance_ty,
             instance_idx,
+            instance_name: name.into(),
             storage: StorageExport {
                 ty: storage_ty,
                 get: get_storage,
@@ -2085,6 +2226,7 @@ impl<T: Host> Contract<T> {
         Ok(ContractInstance {
             component: self.pre.component().clone(),
             instance,
+            external_id: self.external_id.clone(),
         })
     }
 }
@@ -2094,6 +2236,7 @@ impl<T: Host> Contract<T> {
 pub struct ContractInstance {
     component: Component,
     instance: Instance,
+    external_id: Option<Arc<str>>,
 }
 
 impl ContractInstance {
@@ -2172,6 +2315,7 @@ impl ContractInstance {
         &self,
         store: impl AsContextMut<Data: Host>,
         instance_idx: ComponentExportIndex,
+        instance_name: Arc<str>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
@@ -2180,6 +2324,8 @@ impl ContractInstance {
             component: self.component.clone(),
             instance: self.instance,
             instance_idx,
+            instance_name,
+            external_id: self.external_id.clone(),
             resource,
         })
     }
@@ -2188,11 +2334,15 @@ impl ContractInstance {
     pub async fn call_token_mint(
         &self,
         store: impl AsContextMut<Data: Host>,
-        TokenExport { instance_idx, .. }: &TokenExport,
+        TokenExport {
+            instance_idx,
+            instance_name,
+            ..
+        }: &TokenExport,
         TokenMintExport { idx, .. }: &TokenMintExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
-        self.construct_token(store, *instance_idx, idx, params)
+        self.construct_token(store, *instance_idx, Arc::clone(instance_name), idx, params)
             .await
     }
 
@@ -2200,12 +2350,22 @@ impl ContractInstance {
     pub async fn load_token(
         &self,
         store: impl AsContextMut<Data: Host>,
-        TokenExport { instance_idx, .. }: &TokenExport,
+        TokenExport {
+            instance_idx,
+            instance_name,
+            ..
+        }: &TokenExport,
         StorageExport { set, .. }: &StorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Token> {
-        self.construct_token(store, *instance_idx, set, [Val::Record(fields.into())])
-            .await
+        self.construct_token(
+            store,
+            *instance_idx,
+            Arc::clone(instance_name),
+            set,
+            [Val::Record(fields.into())],
+        )
+        .await
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -2263,6 +2423,7 @@ pub struct TokenExport {
     resource_ty: ResourceType,
     instance_ty: types::ComponentInstance,
     instance_idx: ComponentExportIndex,
+    instance_name: Arc<str>,
     storage: StorageExport,
     attach: ComponentExportIndex,
     detach: ComponentExportIndex,
@@ -2402,10 +2563,24 @@ pub struct Token {
     component: Component,
     instance: Instance,
     instance_idx: ComponentExportIndex,
+    instance_name: Arc<str>,
+    external_id: Option<Arc<str>>,
     resource: ResourceAny,
 }
 
 impl Token {
+    /// Name of the token instance exported by its contract
+    #[must_use]
+    pub fn instance_name(&self) -> &Arc<str> {
+        &self.instance_name
+    }
+
+    /// `external-id` the token's contract was compiled with
+    #[must_use]
+    pub fn external_id(&self) -> Option<&Arc<str>> {
+        self.external_id.as_ref()
+    }
+
     #[must_use]
     pub fn instance(&self) -> Instance {
         self.instance

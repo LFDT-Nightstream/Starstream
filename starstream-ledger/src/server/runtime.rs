@@ -97,6 +97,62 @@ impl starstream_runtime::Host for Ctx {
         bail!("attempted to drop token")
     }
 
+    async fn mint_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        instance_name: &Arc<str>,
+        _external_id: Option<&Arc<str>>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<Token>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<Token> {
+        bail!("attempted to mint token `{instance_name}`")
+    }
+
+    async fn burn_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        _token: Resource<Token>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<()> {
+        bail!("attempted to burn token")
+    }
+
+    async fn attach_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        _token: Resource<Token>,
+        _utxo: Resource<Utxo<Self::UtxoContext>>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+            Resource<Utxo<Self::UtxoContext>>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<()> {
+        bail!("attempted to attach token")
+    }
+
+    async fn detach_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        _token: Resource<Token>,
+        _utxo: Resource<Utxo<Self::UtxoContext>>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+            Resource<Utxo<Self::UtxoContext>>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<()> {
+        bail!("attempted to detach token")
+    }
+
     fn emit_event(
         _store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
