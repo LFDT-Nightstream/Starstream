@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport E from starstream:std/cardano;\n\nenum E {\n    A,\n}\n"
+---
+E0063 (https://starstream.nightstream.dev/errors/E0063)
+
+  x namespace `E` is already defined in this module
+   ,-[test.star:3:6]
+ 1 | import E from starstream:std/cardano;
+   :        |
+   :        `-- previously defined here
+ 2 | 
+ 3 | enum E {
+   :      ^
+ 4 |     A,
+   `----

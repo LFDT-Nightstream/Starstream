@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport ns from starstream:std/cardano;\nimport ns from starstream:std/ledger;\n\nfn main() -> i64 {\n    runtime ns::blockHeight()\n}\n"
+---
+E0063 (https://starstream.nightstream.dev/errors/E0063)
+
+  x namespace `ns` is already defined in this module
+   ,-[test.star:2:8]
+ 1 | import ns from starstream:std/cardano;
+   :        ^|
+   :         `-- previously defined here
+ 2 | import ns from starstream:std/ledger;
+   :        ^^
+ 3 | 
+   `----

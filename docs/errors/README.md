@@ -43,3 +43,4 @@ Looking for non-fatal diagnostics? See [Warning Codes](../warnings/README.md).
 | [E0058](./E0058.md) | `let ... else` fallback does not diverge |
 | [E0061](./E0061.md) | `resume` outside a `utxo` |
 | [E0062](./E0062.md) | `if` without `else` cannot produce a value |
+| [E0063](./E0063.md) | Namespace already defined |
