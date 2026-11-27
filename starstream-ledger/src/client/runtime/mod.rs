@@ -10,8 +10,8 @@ use bytes::{Bytes, BytesMut};
 use sha2::{Digest as _, Sha256};
 use starstream_runtime::bindings::starstream;
 use starstream_runtime::{
-    CoordinationScriptExport, CoordinationScriptImport, StarstreamCtx, Token, Utxo, UtxoExport,
-    UtxoImport, get_coordination_script_instance_import, utxo_imports,
+    CoordinationScriptExport, CoordinationScriptImport, StarstreamCtx, Token, TokenImport, Utxo,
+    UtxoExport, UtxoImport, get_coordination_script_instance_import, token_imports, utxo_imports,
 };
 use tokio_util::codec::Encoder as _;
 use tracing::error;
@@ -126,7 +126,12 @@ pub async fn compile_contract(
     });
     let utxo_external_ids = utxo_imports(engine, &ty)
         .map(|import| import.map(|UtxoImport { external_id, .. }| external_id));
-    for external_id in utxo_external_ids.chain(script_external_ids.into_iter().flatten()) {
+    let token_external_ids = token_imports(engine, &ty)
+        .map(|import| import.map(|TokenImport { external_id, .. }| external_id));
+    for external_id in utxo_external_ids
+        .chain(token_external_ids)
+        .chain(script_external_ids.into_iter().flatten())
+    {
         let external_id = external_id?;
         let digest = parse_digest(external_id).with_context(|| {
             format!("failed to parse `external-id` `{external_id}` as multibase multihash")
