@@ -11,6 +11,9 @@ license.workspace = true
 [dependencies]
 chumsky = { workspace = true }
 inventory = "0.3.22"
+multibase = { workspace = true, features = ["std"] }
+multihash = { workspace = true, features = ["std"] }
 pretty = "0.12.5"
 serde = { workspace = true, features = ["derive"] }
 miette.workspace = true
+thiserror = { workspace = true }

@@ -61,13 +61,12 @@ hyper = { workspace = true, optional = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, optional = true, features = ["http1"] }
 mediatype = { workspace = true }
 minicbor = { workspace = true, features = ["derive", "std"] }
-multibase = { workspace = true, features = ["std"] }
-multihash = { workspace = true, features = ["std"] }
 pin-project-lite = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 starstream-proving-runtime = { workspace = true, optional = true }
 starstream-runtime = { workspace = true }
+starstream-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 tokio-io-timeout = { workspace = true, optional = true }
@@ -99,7 +98,6 @@ wit-parser = { workspace = true, optional = true }
 [dev-dependencies]
 starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
-starstream-types = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "macros",
