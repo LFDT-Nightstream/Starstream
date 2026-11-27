@@ -20,7 +20,8 @@ use starstream_ledger::client::http::ClientBuilder;
 use starstream_ledger::client::runtime::UtxoCtx;
 use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
 use starstream_ledger::{
-    APPLICATION_WASM, CardanoCtx, Transaction, TransactionInput, TransactionOutput, encode_digest,
+    APPLICATION_WASM, CardanoCtx, Transaction, TransactionInput, TransactionNonce,
+    TransactionOutput, encode_digest,
 };
 use starstream_runtime::Utxo;
 use tokio::fs;
@@ -127,7 +128,7 @@ enum AccountCommand {
         /// Amount to credit the account with.
         amount: u64,
     },
-    /// Get the last nonce used by an account to publish contracts.
+    /// Get the last nonce used by an account to publish contracts or sign transactions.
     Nonce {
         /// Hex-encoded Ed25519 public key of the account.
         #[arg(value_parser = parse_verifying_key)]
@@ -193,6 +194,10 @@ enum ScriptCommand {
         /// Network identifier the envelope is bound to, defaults to the one reported by the ledger.
         #[arg(long, conflicts_with = "simulate")]
         network: Option<String>,
+
+        /// Transaction nonce, defaults to the one following the last nonce used by the key.
+        #[arg(long, conflicts_with = "simulate")]
+        nonce: Option<u64>,
 
         /// Simulate the call instead of submitting the transaction.
         #[arg(long)]
@@ -545,6 +550,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         Command::Contract(ContractCommand::Script(ScriptCommand::Call {
             key,
             network,
+            nonce,
             simulate,
             prove,
             output_transaction,
@@ -628,7 +634,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 ProofEngine, TransactionProver, verify_transaction_proof,
             };
             let mut prover = prove.then(|| TransactionProver::new(ProofEngine::Optimized));
-            let (tx, execution) = call_coordination_script(
+            let (mut tx, execution) = call_coordination_script(
                 &mut store,
                 &imports,
                 client.wizer(),
@@ -690,6 +696,21 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             }
             let mut results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
+            if let Some(key) = &key {
+                let account = key.verifying_key();
+                let nonce = match nonce {
+                    Some(nonce) => nonce,
+                    None => {
+                        let nonce = client.get_account_nonce(&account).await?;
+                        let nonce = nonce.unwrap_or_default();
+                        nonce.checked_add(1).context("account nonce exhausted")?
+                    }
+                };
+                tx.nonces = vec![TransactionNonce {
+                    key: account.to_bytes(),
+                    nonce,
+                }];
+            }
             if let Some(path) = output_transaction {
                 let tx = minicbor::to_vec(&tx).context("failed to encode transaction")?;
                 fs::write(&path, &tx)

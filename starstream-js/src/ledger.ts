@@ -157,7 +157,7 @@ export class Ledger {
     return unwrapGet(res, "key");
   }
 
-  /** Get the last nonce the account `key` used to publish contracts, if it exists. */
+  /** Get the last nonce the account `key` used to publish or transact, if it exists. */
   async getAccountNonce(key: Uint8Array): Promise<bigint | undefined> {
     const res = await accountRpc.getNonce(this.transport(), key);
     return unwrapGet(res, "key");

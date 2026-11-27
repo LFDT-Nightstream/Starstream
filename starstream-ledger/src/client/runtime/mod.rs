@@ -367,6 +367,7 @@ pub async fn call_coordination_script(
         outputs: tx_outputs,
         events,
         proof: Box::default(),
+        nonces: Vec::default(),
     };
     #[cfg(feature = "proving")]
     if let Some(prover) = prover {
