@@ -86,15 +86,29 @@ struct Contract {
     utxo_wits: HashMap<Box<str>, (Bytes, Bytes)>,
 }
 
+/// Reference to a transaction output, `transaction` is `None` for genesis.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct OutputRef {
+    transaction: Option<[u8; 32]>,
+    index: u32,
+}
+
+#[derive(Clone, Debug)]
+struct Utxo {
+    /// The output that created the coroutine this output is the tip of.
+    coroutine: OutputRef,
+    output: Arc<TransactionOutput>,
+}
+
 #[derive(Clone, Debug)]
 struct Transaction {
-    outputs: Vec<Option<Arc<TransactionOutput>>>,
+    outputs: Vec<Option<Utxo>>,
     envelope: Bytes,
     encoded: Bytes,
 }
 
 struct Genesis {
-    outputs: RwLock<Box<[Option<Arc<TransactionOutput>>]>>,
+    outputs: RwLock<Box<[Option<Utxo>]>>,
     encoded: Bytes,
 }
 
@@ -105,6 +119,8 @@ pub struct Ledger {
     contracts: RwLock<HashMap<[u8; 32], Arc<Contract>>>,
     accounts: RwLock<HashMap<VerifyingKey, Account>>,
     transactions: RwLock<HashMap<[u8; 32], Transaction>>,
+    /// Tips of the unspent coroutines, keyed by the output that created them.
+    coroutines: RwLock<HashMap<OutputRef, OutputRef>>,
     admin: AdminAccount,
     genesis: Genesis,
     network: Arc<str>,
@@ -151,9 +167,20 @@ impl Ledger {
             genesis.into_iter().map(Into::into).collect();
         let mut encoded = BytesMut::new();
         wrpc::pack(&genesis, &mut encoded).expect("failed to encode genesis");
-        let outputs = genesis
-            .into_iter()
-            .map(|utxo| Some(Arc::new(utxo.into())))
+        let mut coroutines = HashMap::with_capacity(genesis.len());
+        let outputs = (0..)
+            .zip(genesis)
+            .map(|(index, output)| {
+                let coroutine = OutputRef {
+                    transaction: None,
+                    index,
+                };
+                coroutines.insert(coroutine, coroutine);
+                Some(Utxo {
+                    coroutine,
+                    output: Arc::new(output.into()),
+                })
+            })
             .collect();
         Self {
             engine,
@@ -161,6 +188,7 @@ impl Ledger {
             contracts: RwLock::default(),
             accounts: RwLock::default(),
             transactions: RwLock::default(),
+            coroutines: RwLock::new(coroutines),
             admin,
             genesis: Genesis {
                 outputs: RwLock::new(outputs),

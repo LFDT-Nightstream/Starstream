@@ -38,6 +38,7 @@ interface types {
         methods: list<tuple<u64, u64, u64, u64>>,
         storage: list<u8>,
         state: list<module-state>,
+        input: option<u32>,
     }
 
     variant get-error {
@@ -83,6 +84,12 @@ interface transaction {
     get-transaction: func(digest: string) -> result<transaction, get-error>;
 }
 
+interface coroutine {
+    use types.{get-error, transaction-input};
+
+    get-tip: func(id: transaction-input) -> result<transaction-input, get-error>;
+}
+
 interface genesis {
     use types.{transaction-output};
 
@@ -99,6 +106,7 @@ world client {
     import block;
     import contract;
     import transaction;
+    import coroutine;
     import genesis;
     import network;
 }

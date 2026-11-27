@@ -3,6 +3,7 @@ import * as accountRpc from "./bindings/starstream/ledger/account.js";
 import * as adminRpc from "./bindings/starstream/ledger/admin.js";
 import * as blockRpc from "./bindings/starstream/ledger/block.js";
 import * as contractRpc from "./bindings/starstream/ledger/contract.js";
+import * as coroutineRpc from "./bindings/starstream/ledger/coroutine.js";
 import * as genesisRpc from "./bindings/starstream/ledger/genesis.js";
 import * as networkRpc from "./bindings/starstream/ledger/network.js";
 import * as transactionRpc from "./bindings/starstream/ledger/transaction.js";
@@ -226,6 +227,17 @@ export class Ledger {
     }
     const tx = await this.getTransaction(output.transaction);
     return tx?.outputs[output.index];
+  }
+
+  /**
+   * Get the unspent output at the tip of the coroutine created by the output
+   * `id`, if any.
+   */
+  async getCoroutineTip(
+    id: TransactionInput,
+  ): Promise<TransactionInput | undefined> {
+    const res = await coroutineRpc.getTip(this.transport(), id);
+    return unwrapGet(res, "digest");
   }
 
   private utxoUrl(output: TransactionInput): string {

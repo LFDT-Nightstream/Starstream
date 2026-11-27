@@ -150,6 +150,7 @@ async fn http() {
         state: starstream_ledger::runtime::parse_state(&score_progress_utxo)
             .collect::<Result<_, _>>()
             .unwrap(),
+        input: None,
     };
     let genesis = [
         score_progress_genesis_utxo.clone(),
@@ -636,6 +637,14 @@ async fn http() {
     assert_eq!(height, 4);
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got.unwrap(), tx);
+    let tip = client
+        .get_coroutine_tip(&TransactionInput::genesis(0))
+        .await
+        .unwrap();
+    assert_eq!(tip, None);
+    let id = TransactionInput::new(tx_digest, 0);
+    let tip = client.get_coroutine_tip(&id).await.unwrap();
+    assert_eq!(tip, Some(id));
 
     let envelope = client.get_transaction_envelope(&tx_digest).await.unwrap();
     let envelope = envelope.unwrap();
@@ -711,12 +720,38 @@ async fn http() {
         .expect("transaction output must be callable");
     assert_eq!(rx, [42].as_slice());
 
-    let tx = Transaction {
+    let mut tx = Transaction {
         inputs: vec![TransactionInput::genesis(1)],
-        outputs: outputs.clone(),
+        outputs,
         events: Vec::default(),
         proof: Box::default(),
     };
+    for output in &mut tx.outputs {
+        output.input = Some(1);
+    }
+    let err = client
+        .transact(ADMIN.clone(), NETWORK, tx.clone())
+        .await
+        .expect_err("outputs must continue existing inputs");
+    assert_eq!(
+        err.to_string(),
+        "output continues input 1, which does not exist"
+    );
+    for output in &mut tx.outputs {
+        output.input = Some(0);
+    }
+    let mut moved = tx.clone();
+    for output in &mut moved.outputs {
+        output.instance = "other".into();
+    }
+    let err = client
+        .transact(ADMIN.clone(), NETWORK, moved)
+        .await
+        .expect_err("outputs must keep the coroutine of their input");
+    assert_eq!(
+        err.to_string(),
+        "output continues input 0 with a different contract or instance"
+    );
     let tx_digest: [u8; 32] = Sha256::digest(minicbor::to_vec(&tx).unwrap()).into();
     let tx_payload = minicbor::to_vec(Envelope {
         network: NETWORK.into(),
@@ -729,6 +764,11 @@ async fn http() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got.unwrap(), tx);
+    let tip = client
+        .get_coroutine_tip(&TransactionInput::genesis(1))
+        .await
+        .unwrap();
+    assert_eq!(tip, Some(TransactionInput::new(tx_digest, 0)));
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")
@@ -1000,6 +1040,7 @@ utxo Counter {
         methods: Default::default(),
         storage: Box::default(),
         state: Vec::default(),
+        input: None,
     };
     let (client, shutdown, ledger) = serve([output]).await;
     client

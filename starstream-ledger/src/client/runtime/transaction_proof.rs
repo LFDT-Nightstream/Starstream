@@ -170,7 +170,15 @@ pub async fn verify_transaction_proof(
                 *original == digest && export == &output.instance,
                 "surviving input changed its contract or UTXO export"
             );
+            anyhow::ensure!(
+                output.input == Some(utxo),
+                "output does not continue the input it was proven to"
+            );
         } else {
+            anyhow::ensure!(
+                output.input.is_none(),
+                "output continues an input it was not proven to"
+            );
             // A new output's proof must run a constructor of the contract and
             // UTXO export the ledger will record for it.
             let original = originals

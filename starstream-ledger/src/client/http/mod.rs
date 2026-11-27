@@ -369,6 +369,22 @@ where
         }
     }
 
+    /// Get the unspent output at the tip of the coroutine created by the output `id`, if any.
+    #[instrument(skip_all)]
+    pub async fn get_coroutine_tip(
+        &self,
+        id: &TransactionInput,
+    ) -> anyhow::Result<Option<TransactionInput>> {
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let id = bindings::starstream::ledger::types::TransactionInput::from(id.clone());
+        let tip = bindings::starstream::ledger::coroutine::get_tip(clt, &id).await?;
+        match tip {
+            Ok(tip) => Ok(Some(tip.into())),
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => Ok(None),
+            Err(err) => Err(err).context("failed to get coroutine tip"),
+        }
+    }
+
     /// Get the transaction UTXO referenced by `digest` and `idx`.
     #[instrument(skip_all)]
     pub async fn get_transaction_utxo(

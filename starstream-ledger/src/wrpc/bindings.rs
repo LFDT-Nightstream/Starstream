@@ -137,6 +137,7 @@ impl From<types::TransactionOutput> for TransactionOutput {
             methods: v.methods.into_iter().collect(),
             storage: Box::from(&*v.storage),
             state: v.state.into_iter().map(Into::into).collect(),
+            input: v.input,
         }
     }
 }
@@ -149,6 +150,7 @@ impl From<TransactionOutput> for types::TransactionOutput {
             methods: v.methods.into_iter().collect(),
             storage: Bytes::from(v.storage),
             state: v.state.into_iter().map(Into::into).collect(),
+            input: v.input,
         }
     }
 }

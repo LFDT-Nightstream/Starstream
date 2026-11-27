@@ -72,6 +72,10 @@ enum Command {
     #[command(subcommand)]
     Contract(ContractCommand),
 
+    /// Query coroutines.
+    #[command(subcommand)]
+    Coroutine(CoroutineCommand),
+
     /// Compute the digest of a file.
     Digest {
         /// Path to the file.
@@ -251,6 +255,16 @@ impl<T: Client> Client for ImportClient<'_, T> {
     async fn get_input_utxo(&self, input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
         self.client.get_input_utxo(input).await
     }
+}
+
+#[derive(Debug, Subcommand)]
+enum CoroutineCommand {
+    /// Print the unspent output at the tip of the coroutine created by a UTXO,
+    /// as `[TRANSACTION]:INDEX`.
+    Tip {
+        #[command(flatten)]
+        utxo: UtxoArgs,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -706,6 +720,18 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 .write_all(results.as_bytes())
                 .await
                 .context("failed to write result tuple to stdout")
+        }
+        Command::Coroutine(CoroutineCommand::Tip { utxo }) => {
+            let id = TransactionInput::from(utxo);
+            let Some(TransactionInput { transaction, index }) =
+                client.get_coroutine_tip(&id).await?
+            else {
+                bail!("coroutine not found")
+            };
+            stdout()
+                .write_all(format!("{transaction}:{index}\n").as_bytes())
+                .await
+                .context("failed to write coroutine tip to stdout")
         }
         Command::Key(KeyCommand::Generate) => {
             let key = SigningKey::generate(&mut OsRng);

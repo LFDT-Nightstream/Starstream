@@ -264,11 +264,13 @@ pub async fn call_coordination_script(
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
                 let storage = unpack_val(Type::Record(storage_export.ty().clone()), &utxo.storage)
                     .context("failed to decode UTXO storage")?;
+                let index = u32::try_from(inputs.len())?;
                 let cx = Arc::new(std::sync::Mutex::new(UtxoCtx {
                     export: utxo_export.clone(),
                     instance: utxo.instance.into(),
                     external_id,
                     methods: utxo.methods.into_iter().collect(),
+                    input: Some(index),
                     dropped: false,
                 }));
                 let cx_res = store.data_mut().table.push(Arc::clone(&cx))?;
@@ -353,6 +355,7 @@ pub async fn call_coordination_script(
             methods,
             storage,
             state,
+            input: cx.input,
         });
     }
     #[cfg(not(feature = "proving"))]
@@ -406,6 +409,7 @@ pub struct UtxoCtx {
     pub instance: Arc<str>,
     pub external_id: Option<Arc<str>>,
     pub methods: HashSet<(u64, u64, u64, u64)>,
+    pub input: Option<u32>,
     pub dropped: bool,
 }
 
@@ -461,6 +465,7 @@ impl starstream_runtime::Host for Ctx {
             instance: Arc::clone(instance_name),
             external_id: external_id.cloned(),
             methods: HashSet::default(),
+            input: None,
             dropped: false,
         };
         let utxo = f(&mut store, Arc::new(std::sync::Mutex::new(cx))).await?;

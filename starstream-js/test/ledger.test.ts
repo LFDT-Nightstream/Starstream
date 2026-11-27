@@ -447,6 +447,10 @@ test("contract and UTXO method calls", async () => {
   expect(await ledger.getOutput({ transaction, index: 0 })).toEqual(
     tx?.outputs[0],
   );
+  expect(await ledger.getCoroutineTip(genesis)).toEqual({
+    transaction,
+    index: 0,
+  });
   expect(await ledger.getUtxoWit({ transaction, index: 0 })).toContain(
     "get-chips: func() -> u64;",
   );

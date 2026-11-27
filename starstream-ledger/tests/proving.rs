@@ -135,8 +135,10 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
     assert_eq!(transaction.outputs.len(), 1);
     assert_ne!(transaction.outputs[0].storage, utxo.storage);
     assert_eq!(transaction.outputs[0].methods, utxo.methods);
+    assert_eq!(transaction.outputs[0].input, Some(0));
     assert_eq!(execution.transaction.statement.inputs.len(), 1);
     assert_eq!(execution.transaction.statement.outputs.len(), 1);
+    assert_eq!(execution.transaction.statement.outputs[0].utxo, 0);
     assert_eq!(execution.traces.len(), 2);
 
     let end = contract.get_coordination_script("end")?;
