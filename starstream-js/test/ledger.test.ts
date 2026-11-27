@@ -13,6 +13,7 @@ import * as starstream from "../src/index.ts";
 
 const root = resolve(import.meta.dirname, "../..");
 const STARSTREAM = process.env.STARSTREAM!;
+const STARSTREAM_COMPILER_WASM = process.env.STARSTREAM_COMPILER_WASM!;
 const STARSTREAM_LEDGER_WASM = process.env.STARSTREAM_LEDGER_WASM!;
 
 function ed25519PublicKey(seed: Buffer): Buffer {
@@ -37,6 +38,7 @@ const WASM_MAGIC = Uint8Array.of(0x00, 0x61, 0x73, 0x6d);
 
 const run = promisify(execFile);
 
+let compiler: starstream.WasmCompiler;
 let dir: string;
 let module: WebAssembly.Module;
 let node: starstream.WasmLedger;
@@ -52,24 +54,18 @@ async function cli(...args: string[]): Promise<string> {
 }
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), "starstream-js-"));
-  const sourcePath = join(dir, "score.star");
-  await writeFile(
-    sourcePath,
-    `${await readFile(join(root, "examples/score.star"), "utf8")}\nscript fn update(prog: ScoreProgress) { prog.plus_chips(5); }\n`,
+  compiler = await starstream.WasmCompiler.instantiate(
+    await WebAssembly.compile(await readFile(STARSTREAM_COMPILER_WASM)),
   );
-  const wasmPath = join(dir, "score.wasm");
-  await run(STARSTREAM, [
-    "wasm",
-    "-c",
-    sourcePath,
-    "--output-component",
-    wasmPath,
-  ]);
-  wasm = new Uint8Array(await readFile(wasmPath));
+  const source = await readFile(join(root, "examples/score.star"), "utf8");
+  ({ component: wasm } = compiler.compile("score.star", {
+    "score.star": `${source}\nscript fn update(prog: ScoreProgress) { prog.plus_chips(5); }\n`,
+  }));
+  dir = await mkdtemp(join(tmpdir(), "starstream-js-"));
   contract = await starstream.digest(wasm);
 
   await writeFile(join(dir, "admin.key"), ADMIN_SEED.toString("hex"));
+  await writeFile(join(dir, "score.wasm"), wasm);
 
   module = await WebAssembly.compile(await readFile(STARSTREAM_LEDGER_WASM));
   node = await starstream.WasmLedger.start(module, {
@@ -231,6 +227,12 @@ test("genesis failure", async () => {
       },
     }),
   ).rejects.toThrow("unknown field `arg`");
+});
+
+test("compile failure", () => {
+  expect(() =>
+    compiler.compile("broken.star", { "broken.star": "script fn" }),
+  ).toThrow("broken.star");
 });
 
 test("base URL", () => {

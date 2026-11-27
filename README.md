@@ -90,6 +90,9 @@ Tooling:
 - `starstream-language-server/` - [LSP] server implementation.
 - `starstream-language-server-web/` - Compiles the language server to WebAssembly ([Web Worker] only, uses [wasm-bindgen]).
 - `starstream-sandbox-web/` - Compiles `starstream-to-wasm/` to Wasm for use in the web sandbox (freestanding).
+- `starstream-compiler-web/` - Compiles the compiler to Wasm (freestanding) for
+    `WasmCompiler` in `starstream-js/`: `cargo build -p starstream-compiler-web
+    --release --target wasm32-unknown-unknown`.
 
 [Web Worker]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API
 [wasm-bindgen]: https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html
