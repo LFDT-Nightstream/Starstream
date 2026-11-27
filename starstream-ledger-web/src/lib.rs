@@ -215,7 +215,7 @@ async fn handle(id: u32, head: Vec<u8>) {
         Some(node) => match parse_request(id, &head) {
             Ok(req) => {
                 node.ledger
-                    .handle_http(req, || sleep(node.io_timeout))
+                    .handle_http(req, move || sleep(node.io_timeout))
                     .await
             }
             Err(err) => build_text_response(StatusCode::BAD_REQUEST, format!("{err:#}")),

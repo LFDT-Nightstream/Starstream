@@ -27,7 +27,6 @@ use starstream_ledger::client::runtime::{Client, call_coordination_script, compi
 use starstream_ledger::client::{build_fund_envelope, build_publish_envelope};
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::LEDGER_BLOCK_INSTANCE;
-use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
     APPLICATION_COSE, APPLICATION_WRPC, CardanoCtx, Envelope, Message, Transaction,
     TransactionInput, TransactionOutput, encode_digest,
@@ -37,6 +36,8 @@ use tokio_util::codec::Encoder as _;
 use wasmtime::Store;
 use wasmtime::component::{Component, Type, Val};
 use wasmtime_wizer::WasmtimeWizerComponent;
+use wrpc::wasmtime::ValEncoder;
+use wrpc::{FrameEncoder, FrameRef, HeaderEncoder, HeaderRef};
 
 pub mod common;
 use common::*;
@@ -123,7 +124,7 @@ async fn http() {
         .await
         .unwrap();
     let mut score_progress_utxo_storage_buf = BytesMut::default();
-    ValEncoder::new(&Type::Record(
+    ValEncoder::new(Type::Record(
         score_progress_utxo_storage_export.ty().clone(),
     ))
     .encode(
@@ -196,6 +197,108 @@ async fn http() {
     );
     assert_eq!(parts.headers[ACCESS_CONTROL_ALLOW_HEADERS], "*");
     assert_eq!(parts.headers[ACCESS_CONTROL_MAX_AGE], "86400");
+
+    let mut body = BytesMut::default();
+    HeaderEncoder
+        .encode(
+            HeaderRef {
+                instance: LEDGER_BLOCK_INSTANCE,
+                name: "get-block",
+            },
+            &mut body,
+        )
+        .unwrap();
+    FrameEncoder
+        .encode(
+            FrameRef {
+                path: &[],
+                data: &[0xff; 11],
+            },
+            &mut body,
+        )
+        .unwrap();
+    let req = http::Request::builder()
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc?index=0"))
+        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
+        .body(Full::new(body.clone().freeze()))
+        .unwrap();
+    let (parts, err) = http_request(&http, req).await.unwrap();
+    let err = String::from_utf8_lossy(&err);
+    assert_eq!(parts.status, StatusCode::BAD_REQUEST, "{err}");
+    assert_eq!(
+        err,
+        "query parameters are only supported for `starstream:ledger/utxo` functions"
+    );
+
+    let mut unknown = BytesMut::default();
+    HeaderEncoder
+        .encode(
+            HeaderRef {
+                instance: LEDGER_BLOCK_INSTANCE,
+                name: "get-unknown",
+            },
+            &mut unknown,
+        )
+        .unwrap();
+    let req = http::Request::builder()
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc?index=0"))
+        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
+        .body(Full::new(unknown.freeze()))
+        .unwrap();
+    let (parts, err) = http_request(&http, req).await.unwrap();
+    let err = String::from_utf8_lossy(&err);
+    assert_eq!(parts.status, StatusCode::NOT_FOUND, "{err}");
+
+    let req = http::Request::builder()
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc"))
+        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
+        .body(Full::new(body.freeze()))
+        .unwrap();
+    let (parts, body) = http_request(&http, req).await.unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(parts.status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(
+        body,
+        "failed to receive request: failed to decode value: varint overflows 64-bit integer"
+    );
+
+    let mut body = BytesMut::default();
+    HeaderEncoder
+        .encode(
+            HeaderRef {
+                instance: LEDGER_BLOCK_INSTANCE,
+                name: "get-block",
+            },
+            &mut body,
+        )
+        .unwrap();
+    for _ in 0..2 {
+        FrameEncoder
+            .encode(
+                FrameRef {
+                    path: &[],
+                    data: &[0],
+                },
+                &mut body,
+            )
+            .unwrap();
+    }
+    let req = http::Request::builder()
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc"))
+        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
+        .body(Full::new(body.freeze()))
+        .unwrap();
+    let (parts, body) = http_request(&http, req).await.unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(parts.status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(
+        body,
+        "failed to receive request: received data after value end"
+    );
 
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 0);
@@ -596,21 +699,17 @@ async fn http() {
     );
     assert_eq!(body, include_str!("../wit/ledger.wit"));
 
-    let mut rx = client
+    let rx = client
         .call_utxo_method(&TransactionInput::genesis(1), "get-chips", &[])
         .await
         .expect("genesis output must remain callable");
-    let mut buf = Vec::default();
-    rx.read_to_end(&mut buf).await.unwrap();
-    assert_eq!(buf, [42]);
+    assert_eq!(rx, [42].as_slice());
 
-    let mut rx = client
+    let rx = client
         .call_utxo_method(&TransactionInput::new(tx_digest, 0), "get-chips", &[])
         .await
         .expect("transaction output must be callable");
-    let mut buf = Vec::default();
-    rx.read_to_end(&mut buf).await.unwrap();
-    assert_eq!(buf, [42]);
+    assert_eq!(rx, [42].as_slice());
 
     let tx = Transaction {
         inputs: vec![TransactionInput::genesis(1)],
@@ -753,35 +852,29 @@ script fn create() {
         .unwrap();
 
     let input = TransactionInput::genesis(0);
-    let mut rx = client.call_utxo_method(&input, "spin", &[]).await.unwrap();
-    let mut buf = Vec::default();
-    let err = rx
-        .read_to_end(&mut buf)
+    let err = client
+        .call_utxo_method(&input, "spin", &[])
         .await
         .expect_err("non-terminating method must run out of fuel");
     assert_eq!(
-        err.to_string(),
-        "HTTP request failed with status `422 Unprocessable Entity`"
+        err.root_cause().to_string(),
+        "HTTP request failed with status `422 Unprocessable Entity`: execution trapped: wasm trap: all fuel consumed by WebAssembly"
     );
 
-    let mut rx = client.call_utxo_method(&input, "fail", &[]).await.unwrap();
-    let mut buf = Vec::default();
-    let err = rx
-        .read_to_end(&mut buf)
+    let err = client
+        .call_utxo_method(&input, "fail", &[])
         .await
         .expect_err("`error` must trap");
     assert_eq!(
-        err.to_string(),
-        "HTTP request failed with status `422 Unprocessable Entity`"
+        err.root_cause().to_string(),
+        "HTTP request failed with status `422 Unprocessable Entity`: execution trapped: wasm trap: wasm `unreachable` instruction executed"
     );
 
-    let mut rx = client
+    let rx = client
         .call_utxo_method(&input, "get", &[])
         .await
         .expect("ledger must keep serving after a trap");
-    let mut buf = Vec::default();
-    rx.read_to_end(&mut buf).await.unwrap();
-    assert_eq!(buf, [0]);
+    assert_eq!(rx, [0].as_slice());
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")
@@ -851,7 +944,7 @@ async fn stalled_connections_are_closed() {
         assert_eq!(&res, b"HTTP/1.1 413", "oversized");
     }
 
-    let mut header = vec![0x00];
+    let mut header = vec![wrpc::PROTOCOL];
     for s in [LEDGER_BLOCK_INSTANCE, "get-height"] {
         header.push(u8::try_from(s.len()).unwrap());
         header.extend_from_slice(s.as_bytes());
@@ -926,9 +1019,9 @@ utxo Counter {
         r#"package starstream:ledger;
 
 interface utxo {
-  get: func(transaction: option<string>, index: u32) -> s64;
+  get: func() -> s64;
 
-  set: func(transaction: option<string>, index: u32, arg-index: option<s64>, arg-transaction: result<tuple<s64, bool>, u8>);
+  set: func(index: option<s64>, transaction: result<tuple<s64, bool>, u8>);
 }
 
 "#

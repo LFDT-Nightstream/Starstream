@@ -195,14 +195,17 @@ their signed envelopes.
 ### `POST /rpc`
 
 Dispatched on `Content-Type`: `application/cose` submits an
-[envelope](#envelopes), `application/x.wrpc` is a wRPC invocation. Any
-other type is `415 Unsupported Media Type`, a malformed one
+[envelope](#envelopes), `application/vnd.bytecodealliance.wrpc` is a wRPC
+invocation. Any other type is `415 Unsupported Media Type`, a malformed one
 `400 Bad Request`.
 
 A wRPC invocation body is the wRPC invocation header naming the instance
-and function, followed by the parameters in the wRPC value encoding. The
-response is a single wRPC frame with the results. Unknown functions are
-`404 Not Found`. The ledger queries are described by
+and function, followed by the wRPC frames with the parameters. The
+response body is the wRPC frames with the results. Unknown functions are
+`404 Not Found`. The response starts once the results are ready and the
+rest of the request is received, so a request body carrying data after its
+parameters is `400 Bad Request`, and one stalling after them
+`408 Request Timeout`. The ledger queries are described by
 [`starstream-ledger/wit/ledger.wit`](https://github.com/LFDT-Nightstream/Starstream/blob/main/starstream-ledger/wit/ledger.wit):
 
 | Instance                        | Function          | Returns                                         |
@@ -222,12 +225,13 @@ response is a single wRPC frame with the results. Unknown functions are
 Accounts are identified by their raw 32-byte public key. Lookups return a
 `get-error` of `not-found`, or `malformed` for an invalid digest or key.
 
-Instance `starstream:ledger/utxo`, function `<method>` calls `<method>` on
-an unspent output, discarding the resulting state. Its parameters are an
-`option<string>` transaction digest (`none` for genesis), a `u32` output
-index, and the method's own parameters. A missing output, contract or
-method is `404 Not Found`; a trap, including running out of fuel, is
-`422 Unprocessable Entity`.
+Instance `starstream:ledger/utxo`, function `<method>`, sent to
+`/rpc?index=INDEX[&transaction=DIGEST]`, calls `<method>` with its own
+parameters on the unspent output `INDEX` of transaction `DIGEST` (genesis
+without `transaction`), discarding the resulting state. A missing output,
+contract or method is `404 Not Found`; a trap, including running out of
+fuel, is `422 Unprocessable Entity`. Envelopes and the functions above
+take no query: sent with one, they are `400 Bad Request`.
 
 ### `GET /rpc`
 
@@ -236,15 +240,15 @@ e.g. with `wit-bindgen-wrpc`:
 
 - without a query, the ledger queries;
 - with `?index=INDEX[&transaction=DIGEST]`, the `utxo` interface of that
-  unspent output, with method parameters prefixed by `arg-`. For the
+  unspent output, invoked at the same URL. For the
   [score example](https://github.com/LFDT-Nightstream/Starstream/blob/main/examples/score.star):
 
   ```wit
   package starstream:ledger;
 
   interface utxo {
-    get-chips: func(transaction: option<string>, index: u32) -> u64;
-    plus-chips: func(transaction: option<string>, index: u32, arg-chips2: u64);
+    get-chips: func() -> u64;
+    plus-chips: func(chips2: u64);
     // ...
   }
   ```

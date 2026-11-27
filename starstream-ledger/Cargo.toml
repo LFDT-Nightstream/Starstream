@@ -23,6 +23,7 @@ http = [
     "dep:http-body",
     "dep:http-body-util",
     "dep:pin-project-lite",
+    "wrpc/http",
 ]
 genesis = ["client", "dep:wasm-wave", "wasmtime/wave"]
 proving = ["client", "dep:starstream-proving-runtime"]
@@ -35,7 +36,6 @@ tcp = [
     "dep:hyper",
     "dep:hyper-util",
     "dep:tokio-io-timeout",
-    "dep:wrpc-http",
     "hyper-util/client",
     "hyper-util/client-legacy",
     "hyper-util/server",
@@ -44,7 +44,6 @@ tcp = [
     "tokio/net",
     "tokio/rt",
     "tokio/time",
-    "wrpc-http/client-legacy",
 ]
 
 [dependencies]
@@ -70,11 +69,10 @@ sha2 = { workspace = true }
 starstream-proving-runtime = { workspace = true, optional = true }
 starstream-runtime = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "sync"] }
+tokio = { workspace = true, features = ["sync"] }
 tokio-io-timeout = { workspace = true, optional = true }
-tokio-util = { workspace = true, features = ["codec", "io"] }
+tokio-util = { workspace = true, features = ["codec"] }
 tracing = { workspace = true, features = ["attributes"] }
-wasm-tokio = { workspace = true }
 wasm-wave = { workspace = true, optional = true }
 wasm-encoder = { workspace = true, features = ["wasmparser"] }
 wasmparser = { workspace = true }
@@ -89,11 +87,9 @@ wasmtime-wizer = { workspace = true, optional = true, features = [
     "component-model",
     "wasmtime",
 ] }
-wit-bindgen-wrpc = { workspace = true }
 wit-component = { workspace = true, optional = true }
 wit-parser = { workspace = true, optional = true }
-wrpc-http = { workspace = true, optional = true }
-wrpc-transport = { workspace = true }
+wrpc = { workspace = true, features = ["wasmtime"] }
 
 [build-dependencies]
 anyhow = { workspace = true, optional = true }
