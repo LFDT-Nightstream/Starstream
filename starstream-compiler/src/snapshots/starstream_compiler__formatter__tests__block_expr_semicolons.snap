@@ -1,0 +1,77 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn discard_if() {\n    if (true) {\n        1\n    } else {\n        2\n    };\n}\n\nfn discard_match(x: bool) {\n    match x {\n        true => {\n            1\n        },\n        false => {\n            2\n        },\n    };\n}\n\nfn discard_block() {\n    {\n        1\n    };\n}\n\nfn if_then_neg() -> i64 {\n    if (true) {\n        10\n    } else {\n        20\n    };\n    -5\n}\n\nfn block_then_neg_stmt() -> i64 {\n    {\n        10\n    };\n    -5;\n    0\n}\n\nfn if_then_tuple(flag: bool) -> (i64, i64) {\n    if (flag) {\n        return (0, 0);\n    };\n    (1, 2)\n}\n\nfn if_then_grouped(flag: bool) -> i64 {\n    if (flag) {\n        return 0;\n    };\n    (1 + 2) * 3\n}\n\nfn if_then_unit(flag: bool) {\n    if (flag) {\n        return;\n    };\n    ()\n}\n\nfn unambiguous_semicolons_dropped(flag: bool) -> i64 {\n    if (flag) {\n        return 1;\n    };\n    let x = 2;\n    {\n        let y = 3;\n    };\n    x\n}\n"
+---
+fn discard_if() {
+    if (true) {
+        1
+    } else {
+        2
+    };
+}
+
+fn discard_match(x: bool) {
+    match x {
+        true => {
+            1
+        },
+        false => {
+            2
+        },
+    };
+}
+
+fn discard_block() {
+    {
+        1
+    };
+}
+
+fn if_then_neg() -> i64 {
+    if (true) {
+        10
+    } else {
+        20
+    };
+    -5
+}
+
+fn block_then_neg_stmt() -> i64 {
+    {
+        10
+    };
+    -5;
+    0
+}
+
+fn if_then_tuple(flag: bool) -> (i64, i64) {
+    if (flag) {
+        return (0, 0);
+    };
+    (1, 2)
+}
+
+fn if_then_grouped(flag: bool) -> i64 {
+    if (flag) {
+        return 0;
+    };
+    (1 + 2) * 3
+}
+
+fn if_then_unit(flag: bool) {
+    if (flag) {
+        return;
+    };
+    ()
+}
+
+fn unambiguous_semicolons_dropped(flag: bool) -> i64 {
+    if (flag) {
+        return 1;
+    }
+    let x = 2;
+    {
+        let y = 3;
+    }
+    x
+}

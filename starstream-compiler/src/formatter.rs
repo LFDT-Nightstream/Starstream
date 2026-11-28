@@ -3,7 +3,7 @@ use starstream_types::{
     AbiDef, AbiMethodDecl, AbiPart, Arguments, BinaryOp, Block, Comment, CommentMap, Definition,
     EffectDef, EventDef, Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal,
     ScopedName, Spanned, Statement, TestDef, TokenDef, TokenGlobal, TokenPart, TypeAnnotation,
-    UtxoDef, UtxoGlobal, UtxoPart,
+    UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumDef, EnumVariant, EnumVariantPayload, Identifier, ImportDef, ImportItems,
         ImportNamedItem, ImportSource, MatchArm, Pattern, Program, StructDef, StructField,
@@ -43,7 +43,7 @@ pub fn statement(statement: &Statement) -> Result<String, fmt::Error> {
     let mut out = String::new();
     let empty_comments = CommentMap::new();
 
-    statement_to_doc(statement, "", &empty_comments).render_fmt(80, &mut out)?;
+    statement_to_doc(statement, false, "", &empty_comments).render_fmt(80, &mut out)?;
 
     Ok(out)
 }
@@ -722,6 +722,7 @@ fn test_definition_to_doc<'a>(
 
 fn statement_to_doc<'a>(
     statement: &Statement,
+    keep_block_expr_semicolon: bool,
     source: &'a str,
     comments: &CommentMap,
 ) -> RcDoc<'a, ()> {
@@ -784,7 +785,11 @@ fn statement_to_doc<'a>(
         Statement::Expression(expr) => {
             let doc = spanned(expr, source, |node| expr_to_doc(node, source, comments));
             match &expr.node {
-                Expr::If { .. } | Expr::Match { .. } | Expr::Block(_) => doc,
+                Expr::If { .. } | Expr::Match { .. } | Expr::Block(_)
+                    if !keep_block_expr_semicolon =>
+                {
+                    doc
+                }
                 _ => doc.append(RcDoc::text(";")),
             }
         }
@@ -816,6 +821,66 @@ fn statement_to_doc<'a>(
     }
 }
 
+/// Whether a block-bodied expression statement (`if`, `match`, `{ ... }`) must
+/// keep its trailing `;` so re-parsing produces the same AST.
+fn block_expression_needs_semicolon(block: &Block, stmt_index: usize) -> bool {
+    match block.statements.get(stmt_index + 1) {
+        Some(next_stmt) => match &next_stmt.node {
+            Statement::Expression(next_expr) => expr_starts_with_continuation(&next_expr.node),
+            _ => false,
+        },
+        None => match &block.tail_expression {
+            Some(tail_expr) => expr_starts_with_continuation(&tail_expr.node),
+            // Last item in the block with no tail expression: omitting `;` would
+            // re-parse this statement as the block's tail expression.
+            None => true,
+        },
+    }
+}
+
+/// Whether formatting `expr` at top-level position emits a leading `(` or `-`,
+/// which the parser would attach to a preceding semicolon-less block expression
+/// as a call or binary subtraction.
+fn expr_starts_with_continuation(expr: &Expr) -> bool {
+    match expr {
+        Expr::Grouping(_) | Expr::Tuple(_) | Expr::Literal(Literal::Unit) => true,
+        Expr::Unary {
+            op: UnaryOp::Negate,
+            ..
+        } => true,
+        Expr::Binary { op, left, .. } => {
+            needs_parentheses(
+                precedence(&left.node),
+                precedence_binary(op),
+                ChildPosition::Left,
+            ) || expr_starts_with_continuation(&left.node)
+        }
+        Expr::Call { callee, .. } => {
+            needs_parentheses(
+                precedence(&callee.node),
+                PREC_FIELD_ACCESS,
+                ChildPosition::Left,
+            ) || expr_starts_with_continuation(&callee.node)
+        }
+        Expr::FieldAccess { target, .. } => expr_starts_with_continuation(&target.node),
+        Expr::Literal(Literal::Integer(_) | Literal::Boolean(_))
+        | Expr::ScopedName(_)
+        | Expr::StructConstructor { .. }
+        | Expr::Disclose { .. }
+        | Expr::Emit { .. }
+        | Expr::Raise { .. }
+        | Expr::Runtime { .. }
+        | Expr::Error
+        | Expr::Yield { .. }
+        | Expr::Block(_)
+        | Expr::If { .. }
+        | Expr::Match { .. }
+        | Expr::Unary {
+            op: UnaryOp::Not, ..
+        } => false,
+    }
+}
+
 fn block_to_doc<'a>(block: &Block, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
     if block.statements.is_empty() && block.tail_expression.is_none() {
         RcDoc::text("{ }")
@@ -824,10 +889,14 @@ fn block_to_doc<'a>(block: &Block, source: &'a str, comments: &CommentMap) -> Rc
         let mut span_items: Vec<(starstream_types::Span, RcDoc<'a, ()>)> = block
             .statements
             .iter()
-            .map(|x| {
+            .enumerate()
+            .map(|(i, x)| {
+                let keep_semicolon = block_expression_needs_semicolon(block, i);
                 (
                     x.span,
-                    spanned(x, source, |node| statement_to_doc(node, source, comments)),
+                    spanned(x, source, |node| {
+                        statement_to_doc(node, keep_semicolon, source, comments)
+                    }),
                 )
             })
             .collect();
@@ -1419,14 +1488,19 @@ mod tests {
     macro_rules! assert_format_snapshot {
         ($code:expr $(,)?) => {{
             let code = indoc! { $code };
-            let formatted = formatted(code);
+            let formatted_once = formatted(code);
+            let formatted_twice = formatted(&formatted_once);
+            assert_eq!(
+                formatted_twice, formatted_once,
+                "formatter output is not idempotent"
+            );
 
             insta::with_settings!({
                 description => format!("Code:\n\n{}", code),
                 omit_expression => true,
                 prepend_module_to_snapshot => true,
             }, {
-                insta::assert_snapshot!(formatted);
+                insta::assert_snapshot!(formatted_once);
             });
         }};
     }
@@ -2397,6 +2471,87 @@ mod tests {
                 main fn new(){yield();}
                 pub fn value( pub x:i64 )->i64 {x}
                 pub fn advance(){resume;}
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn block_expr_semicolons() {
+        assert_format_snapshot!(
+            r#"
+            fn discard_if() {
+                if (true) {
+                    1
+                } else {
+                    2
+                };
+            }
+
+            fn discard_match(x: bool) {
+                match x {
+                    true => {
+                        1
+                    },
+                    false => {
+                        2
+                    },
+                };
+            }
+
+            fn discard_block() {
+                {
+                    1
+                };
+            }
+
+            fn if_then_neg() -> i64 {
+                if (true) {
+                    10
+                } else {
+                    20
+                };
+                -5
+            }
+
+            fn block_then_neg_stmt() -> i64 {
+                {
+                    10
+                };
+                -5;
+                0
+            }
+
+            fn if_then_tuple(flag: bool) -> (i64, i64) {
+                if (flag) {
+                    return (0, 0);
+                };
+                (1, 2)
+            }
+
+            fn if_then_grouped(flag: bool) -> i64 {
+                if (flag) {
+                    return 0;
+                };
+                (1 + 2) * 3
+            }
+
+            fn if_then_unit(flag: bool) {
+                if (flag) {
+                    return;
+                };
+                ()
+            }
+
+            fn unambiguous_semicolons_dropped(flag: bool) -> i64 {
+                if (flag) {
+                    return 1;
+                };
+                let x = 2;
+                {
+                    let y = 3;
+                };
+                x
             }
             "#,
         );
