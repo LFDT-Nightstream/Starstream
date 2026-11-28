@@ -1488,14 +1488,19 @@ mod tests {
     macro_rules! assert_format_snapshot {
         ($code:expr $(,)?) => {{
             let code = indoc! { $code };
-            let formatted = formatted(code);
+            let formatted_once = formatted(code);
+            let formatted_twice = formatted(&formatted_once);
+            assert_eq!(
+                formatted_twice, formatted_once,
+                "formatter output is not idempotent"
+            );
 
             insta::with_settings!({
                 description => format!("Code:\n\n{}", code),
                 omit_expression => true,
                 prepend_module_to_snapshot => true,
             }, {
-                insta::assert_snapshot!(formatted);
+                insta::assert_snapshot!(formatted_once);
             });
         }};
     }
@@ -2472,114 +2477,73 @@ mod tests {
     }
 
     #[test]
-    fn block_expr_semicolon_preserved_when_needed() {
-        let cases = [
-            // Last item in a unit function: omitting `;` would turn it into a tail expression.
-            indoc! {r#"
-                fn discard_if() {
-                    if (true) {
+    fn block_expr_semicolons() {
+        assert_format_snapshot!(
+            r#"
+            fn discard_if() {
+                if (true) {
+                    1
+                } else {
+                    2
+                };
+            }
+
+            fn discard_match(x: bool) {
+                match x {
+                    true => {
                         1
-                    } else {
+                    },
+                    false => {
                         2
-                    };
-                }
-            "#},
-            indoc! {r#"
-                fn discard_match(x: bool) {
-                    match x {
-                        true => {
-                            1
-                        },
-                        false => {
-                            2
-                        },
-                    };
-                }
-            "#},
-            indoc! {r#"
-                fn discard_block() {
-                    {
-                        1
-                    };
-                }
-            "#},
-            // Followed by unary `-`: omitting `;` would re-parse as binary subtraction.
-            indoc! {r#"
-                fn if_then_neg() -> i64 {
-                    if (true) {
-                        10
-                    } else {
-                        20
-                    };
-                    -5
-                }
-            "#},
-            indoc! {r#"
-                fn block_then_neg_stmt() -> i64 {
-                    {
-                        10
-                    };
-                    -5;
-                    0
-                }
-            "#},
-            // Followed by tuple, grouping, or unit literal: omitting `;` would re-parse as a call.
-            indoc! {r#"
-                fn if_then_tuple(flag: bool) -> (i64, i64) {
-                    if (flag) {
-                        return (0, 0);
-                    };
-                    (1, 2)
-                }
-            "#},
-            indoc! {r#"
-                fn if_then_grouped(flag: bool) -> i64 {
-                    if (flag) {
-                        return 0;
-                    };
-                    (1 + 2) * 3
-                }
-            "#},
-            indoc! {r#"
-                fn if_then_unit(flag: bool) {
-                    if (flag) {
-                        return;
-                    };
-                    ()
-                }
-            "#},
-        ];
+                    },
+                };
+            }
 
-        for code in cases {
-            let original = parser::parse_program(code)
-                .into_program()
-                .expect("input should parse");
-            let once = formatted(code);
-            let reparsed = parser::parse_program(&once)
-                .into_program()
-                .unwrap_or_else(|| panic!("formatted output failed to parse:\n{once}"));
+            fn discard_block() {
+                {
+                    1
+                };
+            }
 
-            // Re-parsing must keep the exact same statement vs tail-expression structure.
-            assert_eq!(
-                format!("{original:?}"),
-                format!("{reparsed:?}"),
-                "formatting changed AST for:\n{code}\nformatted:\n{once}"
-            );
+            fn if_then_neg() -> i64 {
+                if (true) {
+                    10
+                } else {
+                    20
+                };
+                -5
+            }
 
-            // Formatting must remain idempotent.
-            assert_eq!(formatted(&once), once, "formatting not idempotent:\n{once}");
+            fn block_then_neg_stmt() -> i64 {
+                {
+                    10
+                };
+                -5;
+                0
+            }
 
-            // Type-checking must still succeed on the formatted code.
-            crate::typecheck_program(&reparsed, crate::TypecheckOptions::default()).unwrap_or_else(
-                |e| panic!("formatted output failed typecheck:\n{once}\nerrors: {e:?}"),
-            );
-        }
-    }
+            fn if_then_tuple(flag: bool) -> (i64, i64) {
+                if (flag) {
+                    return (0, 0);
+                };
+                (1, 2)
+            }
 
-    #[test]
-    fn block_expr_semicolon_dropped_when_unambiguous() {
-        let code = indoc! {r#"
-            fn f(flag: bool) -> i64 {
+            fn if_then_grouped(flag: bool) -> i64 {
+                if (flag) {
+                    return 0;
+                };
+                (1 + 2) * 3
+            }
+
+            fn if_then_unit(flag: bool) {
+                if (flag) {
+                    return;
+                };
+                ()
+            }
+
+            fn unambiguous_semicolons_dropped(flag: bool) -> i64 {
                 if (flag) {
                     return 1;
                 };
@@ -2589,19 +2553,7 @@ mod tests {
                 };
                 x
             }
-        "#};
-        let expected = indoc! {r#"
-            fn f(flag: bool) -> i64 {
-                if (flag) {
-                    return 1;
-                }
-                let x = 2;
-                {
-                    let y = 3;
-                }
-                x
-            }
-        "#};
-        assert_eq!(formatted(code), expected);
+            "#,
+        );
     }
 }
